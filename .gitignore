@@ -1,0 +1,91 @@
+# ==============================================================================
+# SOUTHERN APPARELS ERP - GIT IGNORE
+# ==============================================================================
+# Windows NUL file (device name conflict)
+nul
+.nul
+
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
+*.egg-info/
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Testing
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+
+# Local environment overrides (don't track these)
+frontend/.env.local
+.env.local
+*.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+.cache/
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+
+# AI Tools & MCP Servers
+.claude/
+mcp_memory_storage/
+
+# MCP Server Folders (don't push to GitHub)
+mcp-browser-test/
+mcp-memory/
+
+# MCP Data Files
+.mcp-memory/
+.problem-memory.json
+.test-memory.json
+
+# MCP Screenshots
+mcp-browser-test/screenshots/
+
+# MCP Node Modules (already covered by node_modules/ but being explicit)
+mcp-*/node_modules/
+mcp-*/dist/

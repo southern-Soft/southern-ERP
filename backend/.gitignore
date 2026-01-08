@@ -1,0 +1,36 @@
+# Environment (local overrides only)
+.env.local
+.env.*.local
+# Note: .env is tracked (contains defaults for Docker)
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AI Tools
+.claude/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
