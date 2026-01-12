@@ -11,16 +11,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { PlusCircle, Edit, Trash2, Search, X, Check, ChevronsUpDown } from "lucide-react";
-import { samplesService } from "@/services/api";
+import { Checkbox } from "@/components/ui/checkbox";
+import { PlusCircle, Edit, Trash2, Search, X, Check, ChevronsUpDown, Eye, Kanban } from "lucide-react";
+import { samplesService, workflowService, usersService } from "@/services/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 
 export default function SamplePlanPage() {
   const [plans, setPlans] = useState<any[]>([]);
   const [filteredPlans, setFilteredPlans] = useState<any[]>([]);
   const [sampleRequests, setSampleRequests] = useState<any[]>([]);
   const [machines, setMachines] = useState<any[]>([]);
+  const [workflows, setWorkflows] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -36,6 +41,9 @@ export default function SamplePlanPage() {
     assigned_supervisor_finishing: "",
     required_knitting_machine_id: "",
     delivery_plan_date: "",
+    create_workflow: true, // New field for workflow creation
+    workflow_name: "", // New field for workflow name
+    priority: "medium", // New field for workflow priority
   });
 
   useEffect(() => {
@@ -49,14 +57,18 @@ export default function SamplePlanPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [planData, requestData, machineData] = await Promise.all([
+      const [planData, requestData, machineData, workflowData, userData] = await Promise.all([
         samplesService.plans.getAll(),
         samplesService.requests.getAll(),
         samplesService.machines.getAll(true),
+        workflowService.getWorkflows().catch(() => []),
+        usersService.getAll("", 1000).catch(() => []),
       ]);
       setPlans(Array.isArray(planData) ? planData : []);
       setSampleRequests(Array.isArray(requestData) ? requestData : []);
       setMachines(Array.isArray(machineData) ? machineData : []);
+      setWorkflows(Array.isArray(workflowData) ? workflowData : []);
+      setUsers(Array.isArray(userData) ? userData : []);
     } catch (error) {
       console.error("Failed to load data:", error);
       toast.error("Failed to load data");
@@ -90,7 +102,12 @@ export default function SamplePlanPage() {
   }, [sampleRequests, sampleSearch]);
 
   const handleSampleSelect = (requestId: string) => {
-    setFormData({ ...formData, sample_request_id: requestId });
+    const selectedSample = sampleRequests.find(r => r.id.toString() === requestId);
+    setFormData({ 
+      ...formData, 
+      sample_request_id: requestId,
+      workflow_name: selectedSample ? `Sample Development - ${selectedSample.sample_id}` : ""
+    });
     setSampleOpen(false);
   };
 
@@ -113,6 +130,29 @@ export default function SamplePlanPage() {
       } else {
         await samplesService.plans.create(planData);
         toast.success("Sample plan created successfully");
+        
+        // Create workflow if requested (Requirements 1.1, 10.4)
+        if (formData.create_workflow && formData.workflow_name) {
+          try {
+            const workflowData = {
+              sample_request_id: parseInt(formData.sample_request_id),
+              workflow_name: formData.workflow_name,
+              assigned_designer: formData.assigned_designer || null,
+              assigned_programmer: formData.assigned_programmer || null,
+              assigned_supervisor_knitting: formData.assigned_supervisor_knitting || null,
+              assigned_supervisor_finishing: formData.assigned_supervisor_finishing || null,
+              required_knitting_machine_id: formData.required_knitting_machine_id ? parseInt(formData.required_knitting_machine_id) : null,
+              delivery_plan_date: formData.delivery_plan_date || null,
+              priority: formData.priority,
+            };
+            
+            await workflowService.createWorkflow(workflowData);
+            toast.success("Workflow created successfully");
+          } catch (workflowError: any) {
+            console.error("Workflow creation failed:", workflowError);
+            toast.warning("Sample plan created but workflow creation failed: " + (workflowError?.message || "Unknown error"));
+          }
+        }
       }
 
       setIsDialogOpen(false);
@@ -133,6 +173,9 @@ export default function SamplePlanPage() {
       assigned_supervisor_finishing: item.assigned_supervisor_finishing || "",
       required_knitting_machine_id: item.required_knitting_machine_id?.toString() || "",
       delivery_plan_date: item.delivery_plan_date?.split("T")[0] || "",
+      create_workflow: false, // Don't create workflow when editing
+      workflow_name: "",
+      priority: "medium",
     });
     setIsDialogOpen(true);
   };
@@ -155,12 +198,33 @@ export default function SamplePlanPage() {
       sample_request_id: "", assigned_designer: "", assigned_programmer: "",
       assigned_supervisor_knitting: "", assigned_supervisor_finishing: "",
       required_knitting_machine_id: "", delivery_plan_date: "",
+      create_workflow: true, workflow_name: "", priority: "medium",
     });
     setSampleSearch("");
   };
 
   const getRequestInfo = (requestId: number) => {
     return sampleRequests.find((r) => r.id === requestId);
+  };
+
+  const getWorkflowForSample = (sampleRequestId: number) => {
+    return workflows.find((w) => w.sample_request_id === sampleRequestId);
+  };
+
+  const getWorkflowStatusBadge = (workflow: any) => {
+    if (!workflow) return null;
+
+    const statusColors: Record<string, string> = {
+      active: "bg-blue-100 text-blue-800 border-blue-200",
+      completed: "bg-green-100 text-green-800 border-green-200",
+      cancelled: "bg-gray-100 text-gray-800 border-gray-200",
+    };
+
+    return (
+      <Badge variant="outline" className={statusColors[workflow.workflow_status] || ""}>
+        {workflow.workflow_status}
+      </Badge>
+    );
   };
 
   const selectedRequest = sampleRequests.find((r) => r.id.toString() === formData.sample_request_id);
@@ -172,10 +236,16 @@ export default function SamplePlanPage() {
           <h1 className="text-3xl font-bold">Sample Plan</h1>
           <p className="text-muted-foreground">Assign designers, programmers, supervisors and machines to samples</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm(); }}>
-          <DialogTrigger asChild>
-            <Button><PlusCircle className="mr-2 h-4 w-4" />New Sample Plan</Button>
-          </DialogTrigger>
+        <div className="flex gap-2">
+          <Link href="/dashboard/erp/samples/workflow-board">
+            <Button variant="outline" size="lg">
+              <Kanban className="mr-2 h-5 w-5" /> View Workflow Board
+            </Button>
+          </Link>
+          <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm(); }}>
+            <DialogTrigger asChild>
+              <Button><PlusCircle className="mr-2 h-4 w-4" />New Sample Plan</Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>{editingItem ? "Edit" : "New"} Sample Plan</DialogTitle>
@@ -218,11 +288,35 @@ export default function SamplePlanPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Assign Designer</Label>
-                  <Input value={formData.assigned_designer} onChange={(e) => setFormData({ ...formData, assigned_designer: e.target.value })} placeholder="Designer name" />
+                  <Select value={formData.assigned_designer} onValueChange={(value) => setFormData({ ...formData, assigned_designer: value === 'unassigned' ? '' : value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select designer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">No Designer</SelectItem>
+                      {users.filter(u => u.is_active).map((user) => (
+                        <SelectItem key={user.id} value={user.full_name || user.username}>
+                          {user.full_name || user.username}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Assign Programmer</Label>
-                  <Input value={formData.assigned_programmer} onChange={(e) => setFormData({ ...formData, assigned_programmer: e.target.value })} placeholder="Programmer name" />
+                  <Select value={formData.assigned_programmer} onValueChange={(value) => setFormData({ ...formData, assigned_programmer: value === 'unassigned' ? '' : value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select programmer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">No Programmer</SelectItem>
+                      {users.filter(u => u.is_active).map((user) => (
+                        <SelectItem key={user.id} value={user.full_name || user.username}>
+                          {user.full_name || user.username}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -230,11 +324,35 @@ export default function SamplePlanPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Assign Supervisor Knitting</Label>
-                  <Input value={formData.assigned_supervisor_knitting} onChange={(e) => setFormData({ ...formData, assigned_supervisor_knitting: e.target.value })} placeholder="Knitting supervisor" />
+                  <Select value={formData.assigned_supervisor_knitting} onValueChange={(value) => setFormData({ ...formData, assigned_supervisor_knitting: value === 'unassigned' ? '' : value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select knitting supervisor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">No Supervisor</SelectItem>
+                      {users.filter(u => u.is_active).map((user) => (
+                        <SelectItem key={user.id} value={user.full_name || user.username}>
+                          {user.full_name || user.username}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Assign Supervisor Finishing</Label>
-                  <Input value={formData.assigned_supervisor_finishing} onChange={(e) => setFormData({ ...formData, assigned_supervisor_finishing: e.target.value })} placeholder="Finishing supervisor" />
+                  <Select value={formData.assigned_supervisor_finishing} onValueChange={(value) => setFormData({ ...formData, assigned_supervisor_finishing: value === 'unassigned' ? '' : value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select finishing supervisor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">No Supervisor</SelectItem>
+                      {users.filter(u => u.is_active).map((user) => (
+                        <SelectItem key={user.id} value={user.full_name || user.username}>
+                          {user.full_name || user.username}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -259,13 +377,58 @@ export default function SamplePlanPage() {
                 </div>
               </div>
 
+              {/* Workflow Creation Options (only for new plans) */}
+              {!editingItem && (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="create_workflow"
+                        checked={formData.create_workflow}
+                        onCheckedChange={(checked) => setFormData({ ...formData, create_workflow: !!checked })}
+                      />
+                      <Label htmlFor="create_workflow">Create ClickUp-style workflow for this sample</Label>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      This will create a visual workflow board with cards for each development stage
+                    </p>
+                  </div>
+
+                  {formData.create_workflow && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Workflow Name *</Label>
+                        <Input
+                          value={formData.workflow_name}
+                          onChange={(e) => setFormData({ ...formData, workflow_name: e.target.value })}
+                          placeholder="e.g., Sample Development - [Sample ID]"
+                          required={formData.create_workflow}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Priority</Label>
+                        <Select value={formData.priority} onValueChange={(v) => setFormData({ ...formData, priority: v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-                <Button type="submit">{editingItem ? "Update" : "Create"}</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <Button type="submit">{editingItem ? "Update" : "Create"}              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+        </div>
       </div>
 
       {/* Filters */}
@@ -296,19 +459,21 @@ export default function SamplePlanPage() {
               <TableHead>Supervisor Finishing</TableHead>
               <TableHead>Machine</TableHead>
               <TableHead>Delivery Date</TableHead>
+              <TableHead>Workflow</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredPlans.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground">
+                <TableCell colSpan={9} className="text-center text-muted-foreground">
                   {loading ? "Loading..." : "No sample plans found"}
                 </TableCell>
               </TableRow>
             ) : (
               filteredPlans.map((item) => {
                 const request = getRequestInfo(item.sample_request_id);
+                const workflow = getWorkflowForSample(item.sample_request_id);
                 return (
                   <TableRow key={item.id}>
                     <TableCell className="font-mono font-medium">{request?.sample_id || "-"}</TableCell>
@@ -318,7 +483,21 @@ export default function SamplePlanPage() {
                     <TableCell>{item.assigned_supervisor_finishing || "-"}</TableCell>
                     <TableCell>{item.machine?.machine_name || "-"}</TableCell>
                     <TableCell>{item.delivery_plan_date?.split("T")[0] || "-"}</TableCell>
+                    <TableCell>
+                      {workflow ? (
+                        getWorkflowStatusBadge(workflow)
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No workflow</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
+                      {workflow && (
+                        <Link href={`/dashboard/erp/samples/workflow-board?workflow_id=${workflow.id}`}>
+                          <Button variant="ghost" size="icon" title="View Workflow Board">
+                            <Kanban className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                      )}
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>
                         <Edit className="h-4 w-4" />
                       </Button>

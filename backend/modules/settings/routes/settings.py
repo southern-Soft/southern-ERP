@@ -868,11 +868,13 @@ def convert_uom(request: UoMConversionRequest, db: Session = Depends(get_db_sett
         raise HTTPException(status_code=400, detail="Cannot convert between different UoM categories")
 
     # Convert: first to base unit, then to target unit
-    # value_in_base = value * from_factor
-    # result = value_in_base / to_factor
+    # value_in_base = value * from_conversion_to_base
+    # result = value_in_base / to_conversion_to_base
     from decimal import Decimal
-    from_factor = Decimal(str(from_uom.factor)) if from_uom.factor else Decimal("1")
-    to_factor = Decimal(str(to_uom.factor)) if to_uom.factor else Decimal("1")
+    
+    # Use new conversion_to_base field if available, fallback to factor
+    from_factor = Decimal(str(from_uom.conversion_to_base)) if hasattr(from_uom, 'conversion_to_base') and from_uom.conversion_to_base else (Decimal(str(from_uom.factor)) if from_uom.factor else Decimal("1"))
+    to_factor = Decimal(str(to_uom.conversion_to_base)) if hasattr(to_uom, 'conversion_to_base') and to_uom.conversion_to_base else (Decimal(str(to_uom.factor)) if to_uom.factor else Decimal("1"))
 
     value_in_base = request.value * from_factor
     result = value_in_base / to_factor

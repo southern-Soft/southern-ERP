@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from core.database import get_db_samples
 from core.logging import setup_logging
+from modules.workflows.models.workflow import SampleWorkflow
 from modules.samples.models.sample import (
     # Style models
     StyleSummary, StyleVariant, VariantColorPart,
@@ -254,7 +255,8 @@ def get_sample_requests(
         joinedload(SampleRequest.required_materials),
         joinedload(SampleRequest.operations),
         joinedload(SampleRequest.tna_items),
-        joinedload(SampleRequest.status_history)
+        joinedload(SampleRequest.status_history),
+        joinedload(SampleRequest.workflows).joinedload(SampleWorkflow.cards)  # Load workflow data (Requirements 10.2, 10.3)
     )
 
     if buyer_id:
@@ -264,7 +266,13 @@ def get_sample_requests(
     if current_status:
         query = query.filter(SampleRequest.current_status == current_status)
 
-    return query.order_by(SampleRequest.id.desc()).offset(skip).limit(limit).all()
+    results = query.order_by(SampleRequest.id.desc()).offset(skip).limit(limit).all()
+    
+    # Add workflow status to each result (Requirements 10.2, 10.3)
+    for request in results:
+        request.workflow_status = request.current_workflow_status
+    
+    return results
 
 
 @router.get("/requests/by-sample-id/{sample_id}", response_model=SampleRequestResponse)
@@ -276,11 +284,15 @@ def get_sample_request_by_sample_id(sample_id: str, db: Session = Depends(get_db
         joinedload(SampleRequest.required_materials),
         joinedload(SampleRequest.operations),
         joinedload(SampleRequest.tna_items),
-        joinedload(SampleRequest.status_history)
+        joinedload(SampleRequest.status_history),
+        joinedload(SampleRequest.workflows).joinedload(SampleWorkflow.cards)  # Load workflow data (Requirements 10.2, 10.3)
     ).filter(SampleRequest.sample_id == sample_id).first()
 
     if not request:
         raise HTTPException(status_code=404, detail="Sample request not found")
+    
+    # Add workflow status (Requirements 10.2, 10.3)
+    request.workflow_status = request.current_workflow_status
     return request
 
 
@@ -293,11 +305,15 @@ def get_sample_request(request_id: int, db: Session = Depends(get_db_samples)):
         joinedload(SampleRequest.required_materials),
         joinedload(SampleRequest.operations),
         joinedload(SampleRequest.tna_items),
-        joinedload(SampleRequest.status_history)
+        joinedload(SampleRequest.status_history),
+        joinedload(SampleRequest.workflows).joinedload(SampleWorkflow.cards)  # Load workflow data (Requirements 10.2, 10.3)
     ).filter(SampleRequest.id == request_id).first()
 
     if not request:
         raise HTTPException(status_code=404, detail="Sample request not found")
+    
+    # Add workflow status (Requirements 10.2, 10.3)
+    request.workflow_status = request.current_workflow_status
     return request
 
 

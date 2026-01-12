@@ -43,8 +43,24 @@ const Notifications = () => {
   const { data: notifications = [], isLoading, error } = useQuery({
     queryKey: ["notifications", user?.id],
     queryFn: async () => {
+      if (!token) {
+        console.warn("No token available for notifications");
+        return [];
+      }
       try {
-        return await api.notifications.getAll(false, 50);
+        // Use direct API call with token from auth context
+        const basePath = "/api/v1";
+        const response = await fetch(`${basePath}/notifications?limit=50`, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+        if (!response.ok) {
+          console.error("Notifications fetch failed:", response.status);
+          return [];
+        }
+        return await response.json();
       } catch (error: any) {
         console.error("Error fetching notifications:", error);
         // Return empty array on error instead of throwing
@@ -60,8 +76,24 @@ const Notifications = () => {
   const { data: unreadCount = { count: 0 } } = useQuery({
     queryKey: ["notifications", "unread-count", user?.id],
     queryFn: async () => {
+      if (!token) {
+        console.warn("No token available for unread count");
+        return { count: 0 };
+      }
       try {
-        return await api.notifications.getUnreadCount();
+        // Use direct API call with token from auth context
+        const basePath = "/api/v1";
+        const response = await fetch(`${basePath}/notifications/unread-count`, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+        if (!response.ok) {
+          console.error("Unread count fetch failed:", response.status);
+          return { count: 0 };
+        }
+        return await response.json();
       } catch (error: any) {
         console.error("Error fetching unread count:", error);
         return { count: 0 };
@@ -74,7 +106,19 @@ const Notifications = () => {
 
   // Mark as read mutation
   const markAsReadMutation = useMutation({
-    mutationFn: (id: number) => api.notifications.markAsRead(id),
+    mutationFn: async (id: number) => {
+      if (!token) throw new Error("No token");
+      const basePath = "/api/v1";
+      const response = await fetch(`${basePath}/notifications/${id}/read`, {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!response.ok) throw new Error("Failed to mark as read");
+      return await response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       queryClient.invalidateQueries({ queryKey: ["notifications", "unread-count"] });
@@ -83,7 +127,19 @@ const Notifications = () => {
 
   // Mark all as read mutation
   const markAllAsReadMutation = useMutation({
-    mutationFn: () => api.notifications.markAllAsRead(),
+    mutationFn: async () => {
+      if (!token) throw new Error("No token");
+      const basePath = "/api/v1";
+      const response = await fetch(`${basePath}/notifications/mark-all-read`, {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!response.ok) throw new Error("Failed to mark all as read");
+      return await response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       queryClient.invalidateQueries({ queryKey: ["notifications", "unread-count"] });

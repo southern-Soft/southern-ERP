@@ -42,14 +42,70 @@ export default function AddSampleRequestPage() {
     queryFn: () => api.buyers.getAll(),
   });
 
+  // Fetch yarn and trims from merchandiser (material-details)
   const { data: yarnsData } = useQuery({
     queryKey: ["merchandiser", "yarn"],
-    queryFn: () => api.merchandiser.yarn.getAll(),
+    queryFn: async () => {
+      try {
+        return await api.merchandiser.yarn.getAll();
+      } catch (error) {
+        console.error('Failed to fetch yarns:', error);
+        return [];
+      }
+    },
   });
 
   const { data: trimsData } = useQuery({
     queryKey: ["merchandiser", "trims"],
-    queryFn: () => api.merchandiser.trims.getAll(),
+    queryFn: async () => {
+      try {
+        return await api.merchandiser.trims.getAll();
+      } catch (error) {
+        console.error('Failed to fetch trims:', error);
+        return [];
+      }
+    },
+  });
+
+  const { data: colorsData } = useQuery({
+    queryKey: ["colors"],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/v1/color-master/colors');
+        if (!response.ok) return [];
+        return await response.json();
+      } catch (error) {
+        console.error('Failed to fetch colors:', error);
+        return [];
+      }
+    },
+  });
+
+  const { data: sizesData } = useQuery({
+    queryKey: ["size-charts"],
+    queryFn: async () => {
+      try {
+        // Fetch all size charts from size details
+        const response = await fetch('/api/v1/size-charts');
+        if (!response.ok) return [];
+        const data = await response.json();
+        // Extract unique sizes with their IDs
+        const uniqueSizes = new Map();
+        data.forEach((chart: any) => {
+          if (chart.size_name && chart.id) {
+            uniqueSizes.set(chart.size_name, {
+              id: chart.id,
+              size_name: chart.size_name,
+              size_id: chart.size_id || chart.id
+            });
+          }
+        });
+        return Array.from(uniqueSizes.values());
+      } catch (error) {
+        console.error('Failed to fetch sizes:', error);
+        return [];
+      }
+    },
   });
 
   // Fetch all samples to find the one we're editing
@@ -121,10 +177,11 @@ export default function AddSampleRequestPage() {
         trims_ids: Array.isArray(sampleData.trims_ids) ? sampleData.trims_ids : (sampleData.trims_ids ? [sampleData.trims_ids] : []),
         trims_details: sampleData.trims_details || "",
         decorative_part: decorativeParts,
-        color_id: sampleData.color_id || "",
+        color_ids: Array.isArray(sampleData.color_ids) ? sampleData.color_ids : (sampleData.color_id ? [sampleData.color_id] : []),
         color_name: sampleData.color_name || "",
-        size_id: sampleData.size_id || "",
+        size_ids: Array.isArray(sampleData.size_ids) ? sampleData.size_ids : (sampleData.size_id ? [sampleData.size_id] : []),
         size_name: sampleData.size_name || "",
+        priority: sampleData.priority || "normal",
         yarn_handover_date: sampleData.yarn_handover_date ? new Date(sampleData.yarn_handover_date).toISOString().split('T')[0] : "",
         trims_handover_date: sampleData.trims_handover_date ? new Date(sampleData.trims_handover_date).toISOString().split('T')[0] : "",
         required_date: sampleData.required_date ? new Date(sampleData.required_date).toISOString().split('T')[0] : "",
@@ -144,6 +201,7 @@ export default function AddSampleRequestPage() {
     gauge: "",
     ply: "",
     sample_category: "Proto",
+    priority: "normal" as string,
     yarn_ids: [] as string[],
     yarn_id: "",
     yarn_details: "",
@@ -152,9 +210,9 @@ export default function AddSampleRequestPage() {
     trims_ids: [] as string[],
     trims_details: "",
     decorative_part: [] as string[],  // Array of decorative parts
-    color_id: "",
+    color_ids: [] as number[],  // Array of color IDs
     color_name: "",
-    size_id: "",
+    size_ids: [] as number[],  // Array of size IDs
     size_name: "",
     yarn_handover_date: "",
     trims_handover_date: "",
@@ -176,6 +234,12 @@ export default function AddSampleRequestPage() {
   const [gaugeOpen, setGaugeOpen] = useState(false);
   const [gaugeSearch, setGaugeSearch] = useState("");
   const [gauges, setGauges] = useState<string[]>(["12", "14", "16", "18", "20", "22", "24", "7", "10", "12,5", "14,5"]);
+
+  // Color, Size, Yarn, and Trims dropdown state
+  const [colorOpen, setColorOpen] = useState(false);
+  const [sizeOpen, setSizeOpen] = useState(false);
+  const [yarnOpen, setYarnOpen] = useState(false);
+  const [trimsOpen, setTrimsOpen] = useState(false);
 
   // Mutation for creating sample
   const createPrimaryMutation = useMutation({
@@ -444,8 +508,8 @@ export default function AddSampleRequestPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Row 1: Buyer, Sample Name, Item, Category, Gauge, PLY, Color, Size - 8 columns */}
-              <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(8, minmax(0, 1fr))' }}>
+              {/* Row 1: Buyer, Sample Name, Item, Category, Priority, Gauge, PLY, Colors, Sizes - 9 columns */}
+              <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(9, minmax(0, 1fr))' }}>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Buyer *</Label>
                   <Popover open={buyerOpen} onOpenChange={setBuyerOpen}>
@@ -553,6 +617,18 @@ export default function AddSampleRequestPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
+                  <Label className="text-sm font-medium">Priority *</Label>
+                  <Select value={formData.priority} onValueChange={(v) => setFormData({ ...formData, priority: v })}>
+                    <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="urgent">Urgent - Instant Needed</SelectItem>
+                      <SelectItem value="high">High Priority</SelectItem>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="low">Low Priority</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label className="text-sm font-medium">Gauge</Label>
                   <Popover open={gaugeOpen} onOpenChange={setGaugeOpen}>
                     <PopoverTrigger asChild>
@@ -623,12 +699,96 @@ export default function AddSampleRequestPage() {
                   <Input className="h-10" type="number" value={formData.ply} onChange={(e) => setFormData({ ...formData, ply: e.target.value })} placeholder="2" />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Color Name</Label>
-                  <Input className="h-10" value={formData.color_name} onChange={(e) => setFormData({ ...formData, color_name: e.target.value })} />
+                  <Label className="text-sm font-medium">Colors</Label>
+                  <Popover open={colorOpen} onOpenChange={setColorOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox" className="w-full justify-between h-10 text-sm">
+                        {formData.color_ids.length > 0 
+                          ? `${formData.color_ids.length} color(s) selected`
+                          : "Select colors..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[250px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search colors..." />
+                        <CommandEmpty>No colors found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {(colorsData || []).map((color: any) => (
+                              <CommandItem
+                                key={color.id}
+                                value={color.color_name}
+                                onSelect={() => {
+                                  const isSelected = formData.color_ids.includes(color.id);
+                                  setFormData({
+                                    ...formData,
+                                    color_ids: isSelected
+                                      ? formData.color_ids.filter(id => id !== color.id)
+                                      : [...formData.color_ids, color.id]
+                                  });
+                                }}
+                              >
+                                <div className="flex items-center w-full">
+                                  <Check className={cn("mr-2 h-4 w-4", formData.color_ids.includes(color.id) ? "opacity-100" : "opacity-0")} />
+                                  <div className="flex items-center gap-2 flex-1">
+                                    {color.hex_code && (
+                                      <div 
+                                        className="w-4 h-4 rounded border" 
+                                        style={{ backgroundColor: color.hex_code }}
+                                      />
+                                    )}
+                                    <span className="text-sm">{color.color_name}</span>
+                                  </div>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Size Name</Label>
-                  <Input className="h-10" value={formData.size_name} onChange={(e) => setFormData({ ...formData, size_name: e.target.value })} />
+                  <Label className="text-sm font-medium">Sizes</Label>
+                  <Popover open={sizeOpen} onOpenChange={setSizeOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox" className="w-full justify-between h-10 text-sm">
+                        {formData.size_ids.length > 0 
+                          ? `${formData.size_ids.length} size(s) selected`
+                          : "Select sizes..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[200px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search sizes..." />
+                        <CommandEmpty>No sizes found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {(sizesData || []).map((size: any) => (
+                              <CommandItem
+                                key={size.id}
+                                value={size.size_name}
+                                onSelect={() => {
+                                  const isSelected = formData.size_ids.includes(size.id);
+                                  setFormData({
+                                    ...formData,
+                                    size_ids: isSelected
+                                      ? formData.size_ids.filter(id => id !== size.id)
+                                      : [...formData.size_ids, size.id]
+                                  });
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", formData.size_ids.includes(size.id) ? "opacity-100" : "opacity-0")} />
+                                <span className="text-sm">{size.size_name}</span>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
 
@@ -640,11 +800,86 @@ export default function AddSampleRequestPage() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Yarn ID</Label>
-                  <Input className="h-10" value={formData.yarn_id} onChange={(e) => setFormData({ ...formData, yarn_id: e.target.value })} />
+                  <Popover open={yarnOpen} onOpenChange={setYarnOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox" className="w-full justify-between h-10 text-sm">
+                        {formData.yarn_id 
+                          ? (yarnsData || []).find((y: any) => y.product_id === formData.yarn_id)?.product_name || formData.yarn_id
+                          : "Select yarn..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[300px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search yarns..." />
+                        <CommandEmpty>No yarns found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {(yarnsData || []).map((yarn: any) => (
+                              <CommandItem
+                                key={yarn.product_id}
+                                value={`${yarn.product_id} ${yarn.product_name}`}
+                                onSelect={() => {
+                                  setFormData({ ...formData, yarn_id: yarn.product_id });
+                                  setYarnOpen(false);
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", formData.yarn_id === yarn.product_id ? "opacity-100" : "opacity-0")} />
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-medium">{yarn.product_id}</span>
+                                  <span className="text-xs text-muted-foreground">{yarn.product_name}</span>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Trims ID</Label>
-                  <Input className="h-10" value={formData.trims_ids && formData.trims_ids.length > 0 ? formData.trims_ids.join(", ") : ""} onChange={(e) => setFormData({ ...formData, trims_ids: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} placeholder="TRM-001, TRM-002" />
+                  <Label className="text-sm font-medium">Trims</Label>
+                  <Popover open={trimsOpen} onOpenChange={setTrimsOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox" className="w-full justify-between h-10 text-sm">
+                        {formData.trims_ids && formData.trims_ids.length > 0 
+                          ? `${formData.trims_ids.length} trim(s) selected`
+                          : "Select trims..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[300px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search trims..." />
+                        <CommandEmpty>No trims found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {(trimsData || []).map((trim: any) => (
+                              <CommandItem
+                                key={trim.product_id}
+                                value={`${trim.product_id} ${trim.product_name}`}
+                                onSelect={() => {
+                                  const isSelected = formData.trims_ids.includes(trim.product_id);
+                                  setFormData({
+                                    ...formData,
+                                    trims_ids: isSelected
+                                      ? formData.trims_ids.filter(id => id !== trim.product_id)
+                                      : [...formData.trims_ids, trim.product_id]
+                                  });
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", formData.trims_ids.includes(trim.product_id) ? "opacity-100" : "opacity-0")} />
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-medium">{trim.product_id}</span>
+                                  <span className="text-xs text-muted-foreground">{trim.product_name}</span>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Decorative Part</Label>

@@ -115,7 +115,7 @@ class ManufacturingOperation(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     operation_id = Column(String, unique=True, nullable=False, index=True)  # e.g., "OP001"
-    operation_type = Column(String, nullable=False, index=True)  # Knitting, Linking, Trimming, etc.
+    operation_type = Column(String, nullable=True, index=True)  # Knitting, Linking, Trimming, etc. (Optional)
     operation_name = Column(String, nullable=False)  # Front Part, Back Part, etc.
     standard_duration = Column(Float, nullable=True)  # Standard duration in minutes
     is_active = Column(Boolean, default=True)
@@ -185,10 +185,62 @@ class SampleRequest(Base):
     operations = relationship("SampleOperation", back_populates="sample", cascade="all, delete-orphan")
     tna_items = relationship("SampleTNA", back_populates="sample", cascade="all, delete-orphan")
     status_history = relationship("SampleStatus", back_populates="sample", cascade="all, delete-orphan")
+    
+    # Workflow relationship (Requirements 10.1, 10.2)
+    # Using string reference to avoid circular imports
+    workflows = relationship(
+        "SampleWorkflow", 
+        foreign_keys="[SampleWorkflow.sample_request_id]",
+        primaryjoin="SampleRequest.id == SampleWorkflow.sample_request_id",
+        viewonly=True
+    )
 
     @property
     def style_name(self):
         return self.style.style_name if self.style else None
+
+    @property
+    def current_workflow_status(self):
+        """Get the current workflow status for this sample (Requirements 10.2, 10.3)"""
+        if self.workflows:
+            # Get the most recent workflow
+            latest_workflow = max(self.workflows, key=lambda w: w.created_at)
+            return {
+                'workflow_id': latest_workflow.id,
+                'workflow_name': latest_workflow.workflow_name,
+                'status': latest_workflow.workflow_status,
+                'progress': self._calculate_workflow_progress(latest_workflow),
+                'current_stage': self._get_current_stage(latest_workflow)
+            }
+        return None
+
+    def _calculate_workflow_progress(self, workflow):
+        """Calculate workflow progress percentage"""
+        if not workflow.cards:
+            return 0
+        completed_cards = sum(1 for card in workflow.cards if card.card_status == 'completed')
+        return int((completed_cards / len(workflow.cards)) * 100)
+
+    def _get_current_stage(self, workflow):
+        """Get the current active stage"""
+        if not workflow.cards:
+            return None
+        
+        # Find the first non-completed card
+        for card in sorted(workflow.cards, key=lambda c: c.stage_order):
+            if card.card_status != 'completed':
+                return {
+                    'stage_name': card.stage_name,
+                    'status': card.card_status,
+                    'assigned_to': card.assigned_to
+                }
+        
+        # All cards completed
+        return {
+            'stage_name': 'Completed',
+            'status': 'completed',
+            'assigned_to': None
+        }
 
 
 # =============================================================================

@@ -26,6 +26,7 @@ import {
 import { PlusCircle, Edit, Trash2, Search, X, Loader2 } from "lucide-react";
 import { ExportButton } from "@/components/export-button";
 import type { ExportColumn } from "@/lib/export-utils";
+import { BuyerTypeSelector } from "@/components/clients/buyer-type-selector";
 import {
   Select,
   SelectContent,
@@ -64,6 +65,7 @@ interface BuyerFormData {
   website: string;
   rating: number;
   status: string;
+  buyer_type_id: string;
 }
 
 const initialFormData: BuyerFormData = {
@@ -76,6 +78,7 @@ const initialFormData: BuyerFormData = {
   website: "",
   rating: 0,
   status: "active",
+  buyer_type_id: "",
 };
 
 export default function BuyersPage() {
@@ -183,11 +186,17 @@ export default function BuyersPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Prepare data with proper type conversion
+      const submitData = {
+        ...formData,
+        buyer_type_id: formData.buyer_type_id ? parseInt(formData.buyer_type_id) : undefined,
+      };
+
       if (editingBuyer) {
-        await updateMutation.mutateAsync({ id: editingBuyer.id, data: formData });
+        await updateMutation.mutateAsync({ id: editingBuyer.id, data: submitData });
         toast.success("Buyer updated successfully");
       } else {
-        await createMutation.mutateAsync(formData);
+        await createMutation.mutateAsync(submitData);
         toast.success("Buyer created successfully");
       }
       setIsDialogOpen(false);
@@ -211,6 +220,7 @@ export default function BuyersPage() {
       website: buyer.website || "",
       rating: buyer.rating || 0,
       status: buyer.status || "active",
+      buyer_type_id: buyer.buyer_type_id ? buyer.buyer_type_id.toString() : "",
     });
     setIsDialogOpen(true);
   };
@@ -238,6 +248,7 @@ export default function BuyersPage() {
     { key: "buyer_name", header: "Buyer Name" },
     { key: "brand_name", header: "Brand Name" },
     { key: "company_name", header: "Company Name" },
+    { key: "buyer_type", header: "Buyer Type", transform: (value, row) => row.buyer_type?.name || "-" },
     { key: "head_office_country", header: "Head Office Country" },
     { key: "email", header: "Email" },
     { key: "phone", header: "Phone" },
@@ -365,6 +376,15 @@ export default function BuyersPage() {
                     required
                     value={formData.company_name}
                     onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="buyer_type">Buyer Type</Label>
+                  <BuyerTypeSelector
+                    value={formData.buyer_type_id}
+                    onChange={(value) => setFormData({ ...formData, buyer_type_id: value })}
+                    placeholder="Select buyer type"
+                    allowCreate={true}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -571,6 +591,7 @@ export default function BuyersPage() {
               <TableHead>Buyer Name</TableHead>
               <TableHead>Brand</TableHead>
               <TableHead>Company</TableHead>
+              <TableHead>Buyer Type</TableHead>
               <TableHead>Head Office Country</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Phone</TableHead>
@@ -584,7 +605,7 @@ export default function BuyersPage() {
           <TableBody>
             {displayedBuyers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} className="h-24 text-center">
+                <TableCell colSpan={12} className="h-24 text-center">
                   {buyers.length === 0
                     ? "No buyers found. Add your first buyer to get started."
                     : "No buyers match your filters. Try adjusting your search criteria."}
@@ -603,6 +624,7 @@ export default function BuyersPage() {
                   <TableCell className="font-medium">{buyer.buyer_name}</TableCell>
                   <TableCell>{buyer.brand_name || "-"}</TableCell>
                   <TableCell>{buyer.company_name}</TableCell>
+                  <TableCell>{buyer.buyer_type?.name || "-"}</TableCell>
                   <TableCell>{buyer.head_office_country || "-"}</TableCell>
                   <TableCell>{buyer.email || "-"}</TableCell>
                   <TableCell>{buyer.phone || "-"}</TableCell>
@@ -662,6 +684,10 @@ export default function BuyersPage() {
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-muted-foreground">Company Name</Label>
                   <p className="text-base">{selectedBuyer.company_name}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-muted-foreground">Buyer Type</Label>
+                  <p className="text-base">{selectedBuyer.buyer_type?.name || "-"}</p>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-muted-foreground">Head Office Country</Label>

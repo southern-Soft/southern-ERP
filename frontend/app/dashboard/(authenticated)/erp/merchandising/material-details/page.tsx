@@ -2289,6 +2289,7 @@ function PackingGoodDialog({
     carton_length: "",
     carton_width: "",
     carton_height: "",
+    carton_weight: "",
     remarks: "",
   });
 
@@ -2318,9 +2319,10 @@ function PackingGoodDialog({
         sub_category: editingPackingGood.sub_category || "",
         uom: editingPackingGood.uom || "",
         consumable_flag: consumableValue,
-        carton_length: editingPackingGood.carton_length || "",
-        carton_width: editingPackingGood.carton_width || "",
-        carton_height: editingPackingGood.carton_height || "",
+        carton_length: editingPackingGood.carton_length?.toString() || "",
+        carton_width: editingPackingGood.carton_width?.toString() || "",
+        carton_height: editingPackingGood.carton_height?.toString() || "",
+        carton_weight: editingPackingGood.carton_weight?.toString() || "",
         remarks: editingPackingGood.remarks || "",
       });
     } else {
@@ -2334,6 +2336,7 @@ function PackingGoodDialog({
         carton_length: "",
         carton_width: "",
         carton_height: "",
+        carton_weight: "",
         remarks: "",
       });
     }
@@ -2439,12 +2442,12 @@ function PackingGoodDialog({
             </div>
           </div>
 
-          {/* Carton Size Section */}
+          {/* Carton Size & Weight Section */}
           <div className="border rounded-lg p-4 space-y-4">
-            <Label className="text-base font-semibold">Carton Dimensions (cm)</Label>
-            <div className="grid grid-cols-3 gap-4">
+            <Label className="text-base font-semibold">Carton Specifications</Label>
+            <div className="grid grid-cols-4 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="carton_length">Length</Label>
+                <Label htmlFor="carton_length">Length (cm)</Label>
                 <Input
                   id="carton_length"
                   type="number"
@@ -2455,7 +2458,7 @@ function PackingGoodDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="carton_width">Width</Label>
+                <Label htmlFor="carton_width">Width (cm)</Label>
                 <Input
                   id="carton_width"
                   type="number"
@@ -2466,7 +2469,7 @@ function PackingGoodDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="carton_height">Height</Label>
+                <Label htmlFor="carton_height">Height (cm)</Label>
                 <Input
                   id="carton_height"
                   type="number"
@@ -2476,10 +2479,22 @@ function PackingGoodDialog({
                   placeholder="e.g., 30"
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="carton_weight">Weight (kg)</Label>
+                <Input
+                  id="carton_weight"
+                  type="number"
+                  step="0.01"
+                  value={formData.carton_weight}
+                  onChange={(e) => setFormData({ ...formData, carton_weight: e.target.value })}
+                  placeholder="e.g., 2.5"
+                />
+              </div>
             </div>
             {formData.carton_length && formData.carton_width && formData.carton_height && (
               <p className="text-sm text-muted-foreground">
                 Volume: {(parseFloat(formData.carton_length) * parseFloat(formData.carton_width) * parseFloat(formData.carton_height) / 1000000).toFixed(4)} m³
+                {formData.carton_weight && ` | Weight: ${formData.carton_weight} kg`}
               </p>
             )}
           </div>

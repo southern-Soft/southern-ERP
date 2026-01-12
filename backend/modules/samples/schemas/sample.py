@@ -164,7 +164,7 @@ class SampleMachineResponse(SampleMachineBase):
 
 class ManufacturingOperationBase(BaseModel):
     operation_id: str
-    operation_type: str
+    operation_type: Optional[str] = None  # Made optional per user request
     operation_name: str
     standard_duration: Optional[float] = None
     is_active: bool = True
@@ -465,6 +465,9 @@ class SampleRequestResponse(SampleRequestBase):
     operations: Optional[List[SampleOperationResponse]] = []
     tna_items: Optional[List[SampleTNAResponse]] = []
     status_history: Optional[List[SampleStatusResponse]] = []
+    
+    # Workflow information (Requirements 10.2, 10.3)
+    workflow_status: Optional[dict] = None
 
     class Config:
         from_attributes = True

@@ -3,6 +3,31 @@ from typing import Optional
 from datetime import datetime
 
 
+class BuyerTypeBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    is_active: Optional[bool] = True
+
+
+class BuyerTypeCreate(BuyerTypeBase):
+    pass
+
+
+class BuyerTypeUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class BuyerTypeResponse(BuyerTypeBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class BuyerBase(BaseModel):
     buyer_name: str
     brand_name: Optional[str] = None
@@ -13,6 +38,7 @@ class BuyerBase(BaseModel):
     website: Optional[str] = None
     rating: Optional[float] = None
     status: Optional[str] = "active"  # active, inactive, on_hold
+    buyer_type_id: Optional[int] = None
 
 
 class BuyerCreate(BuyerBase):
@@ -29,10 +55,12 @@ class BuyerUpdate(BaseModel):
     website: Optional[str] = None
     rating: Optional[float] = None
     status: Optional[str] = None  # active, inactive, on_hold
+    buyer_type_id: Optional[int] = None
 
 
 class BuyerResponse(BuyerBase):
     id: int
+    buyer_type: Optional[BuyerTypeResponse] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 

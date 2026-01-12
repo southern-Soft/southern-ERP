@@ -108,6 +108,13 @@ interface PasswordResetConfirm {
 // CLIENT TYPES (BUYERS & SUPPLIERS)
 // ============================================================================
 
+/** Buyer type entity */
+interface BuyerType extends BaseEntity {
+  name: string;
+  description?: string;
+  is_active: boolean;
+}
+
 /** Buyer entity */
 interface Buyer extends BaseEntity {
   buyer_name?: string; // Optional: some pages use this
@@ -127,6 +134,8 @@ interface Buyer extends BaseEntity {
   logo_url?: string;
   rating?: number; // Optional: buyer rating 0-5
   status?: string; // Optional: active/inactive/on-hold
+  buyer_type_id?: number; // Optional: FK to buyer_types table
+  buyer_type?: BuyerType; // Optional: populated buyer type relationship
 }
 
 /** Buyer creation/update payload */

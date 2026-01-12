@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fc from 'fast-check'
+import { errorHandlingService } from '@/services/error-handling'
 
 // Mock the API services
 vi.mock('@/services/api', () => ({
@@ -160,10 +161,10 @@ describe('Property Test 1: Client Data Loading Reliability', () => {
           vi.mocked(shippingService.getAll).mockResolvedValue(mockData)
 
           // Call service with limit parameter
-          const result = await shippingService.getAll(limit)
+          const result = await shippingService.getAll(limit ?? undefined)
 
           // Verify API was called with correct limit
-          expect(shippingService.getAll).toHaveBeenCalledWith(limit)
+          expect(shippingService.getAll).toHaveBeenCalledWith(limit ?? undefined)
           expect(result).toEqual(mockData)
         }
       ),
@@ -197,6 +198,260 @@ describe('Property Test 1: Client Data Loading Reliability', () => {
         }
       ),
       { numRuns: 100 }
+    )
+  })
+})
+
+/**
+ * Property Test 2: Network Error Recovery
+ * Validates: Requirements 1.4
+ * 
+ * This test ensures that network error recovery mechanisms work correctly
+ * with retry logic, exponential backoff, and user-friendly error messages.
+ */
+describe('Property Test 2: Network Error Recovery', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    errorHandlingService.clearErrorLog()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('should retry retryable network operations', async () => {
+    // Feature: erp-system-improvements, Property 2: Network Error Recovery
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(
+          'Network Error',
+          'Timeout',
+          'Connection refused',
+          'Server unavailable',
+          'fetch failed',
+          'Failed to fetch'
+        ),
+        fc.integer({ min: 1, max: 2 }), // maxRetries (reduced for faster tests)
+        async (errorMessage, maxRetries) => {
+          let attemptCount = 0
+          const mockOperation = vi.fn().mockImplementation(() => {
+            attemptCount++
+            if (attemptCount <= maxRetries) {
+              throw new Error(errorMessage)
+            }
+            return Promise.resolve({ success: true, data: [] })
+          })
+
+          const context = {
+            operation: 'test-network-operation',
+            endpoint: '/test',
+            timestamp: new Date()
+          }
+
+          const config = {
+            maxRetries,
+            baseDelay: 10, // Very small delay for testing
+            maxDelay: 100,
+            backoffMultiplier: 2,
+            retryableErrors: [errorMessage]
+          }
+
+          // Should eventually succeed after retries
+          const result = await errorHandlingService.executeWithRetry(
+            mockOperation,
+            context,
+            config
+          )
+
+          // Verify operation was retried the expected number of times
+          expect(attemptCount).toBe(maxRetries + 1)
+          expect(result).toEqual({ success: true, data: [] })
+          expect(mockOperation).toHaveBeenCalledTimes(maxRetries + 1)
+        }
+      ),
+      { numRuns: 20, timeout: 5000 } // Reduced runs for faster tests
+    )
+  }, 10000) // Increased test timeout
+
+  it('should provide user-friendly error messages for network failures', async () => {
+    // Feature: erp-system-improvements, Property 2: Network Error Recovery
+    await fc.assert(
+      fc.asyncProperty(
+        fc.record({
+          originalError: fc.constantFrom(
+            'Network Error',
+            'Timeout',
+            'Connection refused',
+            'unauthorized',
+            'forbidden',
+            'not found'
+          ),
+          operation: fc.constantFrom(
+            'load-shipping-data',
+            'load-banking-data',
+            'create-shipping',
+            'update-banking'
+          )
+        }),
+        async ({ originalError, operation }) => {
+          const mockOperation = vi.fn().mockRejectedValue(new Error(originalError))
+          
+          const context = {
+            operation,
+            endpoint: '/test',
+            timestamp: new Date()
+          }
+
+          const config = {
+            maxRetries: 0, // No retries for faster tests
+            baseDelay: 10,
+            maxDelay: 100,
+            backoffMultiplier: 2,
+            retryableErrors: [originalError]
+          }
+
+          try {
+            await errorHandlingService.executeWithRetry(mockOperation, context, config)
+            // Should not reach here
+            expect(false).toBe(true)
+          } catch (enhancedError: any) {
+            // Verify error has been enhanced with user-friendly message
+            expect(enhancedError).toBeInstanceOf(Error)
+            expect(enhancedError.message).not.toBe(originalError)
+            expect(enhancedError.message.length).toBeGreaterThan(0)
+            
+            // Verify original error is preserved
+            expect((enhancedError as any).originalError).toBeInstanceOf(Error)
+            expect((enhancedError as any).originalError.message).toBe(originalError)
+            
+            // Verify context is preserved
+            expect((enhancedError as any).context).toEqual(context)
+          }
+        }
+      ),
+      { numRuns: 20, timeout: 3000 } // Reduced runs for faster tests
+    )
+  }, 8000) // Increased test timeout
+
+  it('should not retry non-retryable errors', async () => {
+    // Feature: erp-system-improvements, Property 2: Network Error Recovery
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(
+          'Validation Error',
+          'Bad Request',
+          'Unauthorized Access',
+          'Custom Business Logic Error'
+        ),
+        async (nonRetryableError) => {
+          let attemptCount = 0
+          const mockOperation = vi.fn().mockImplementation(() => {
+            attemptCount++
+            throw new Error(nonRetryableError)
+          })
+
+          const context = {
+            operation: 'test-non-retryable',
+            endpoint: '/test',
+            timestamp: new Date()
+          }
+
+          try {
+            await errorHandlingService.executeWithRetry(mockOperation, context)
+            // Should not reach here
+            expect(false).toBe(true)
+          } catch (error) {
+            // Should fail immediately without retries
+            expect(attemptCount).toBe(1)
+            expect(mockOperation).toHaveBeenCalledTimes(1)
+            expect(error).toBeInstanceOf(Error)
+          }
+        }
+      ),
+      { numRuns: 30 }
+    )
+  })
+
+  it('should log errors with proper context information', async () => {
+    // Feature: erp-system-improvements, Property 2: Network Error Recovery
+    await fc.assert(
+      fc.asyncProperty(
+        fc.record({
+          operation: fc.constantFrom(
+            'load-shipping-data',
+            'load-banking-data', 
+            'create-shipping',
+            'update-banking',
+            'delete-client-info',
+            'fetch-user-data'
+          ),
+          endpoint: fc.string({ minLength: 1, maxLength: 50 }),
+          errorMessage: fc.constantFrom('Network Error', 'Timeout', 'fetch failed')
+        }),
+        async ({ operation, endpoint, errorMessage }) => {
+          const mockOperation = vi.fn().mockRejectedValue(new Error(errorMessage))
+          
+          const context = {
+            operation,
+            endpoint,
+            timestamp: new Date()
+          }
+
+          const config = {
+            maxRetries: 0, // No retries for faster tests
+            baseDelay: 10,
+            maxDelay: 100,
+            backoffMultiplier: 2,
+            retryableErrors: [errorMessage]
+          }
+
+          try {
+            await errorHandlingService.executeWithRetry(mockOperation, context, config)
+          } catch (error) {
+            // Verify error was logged
+            const errorStats = errorHandlingService.getErrorStats()
+            expect(errorStats.totalErrors).toBeGreaterThan(0)
+            expect(errorStats.errorsByOperation[operation]).toBeGreaterThanOrEqual(1)
+            
+            // Verify recent errors contain our error
+            const recentErrors = errorStats.recentErrors
+            expect(recentErrors.length).toBeGreaterThan(0)
+            
+            const ourError = recentErrors.find(e => e.context.operation === operation)
+            expect(ourError).toBeDefined()
+            expect(ourError?.context.endpoint).toBe(endpoint)
+            expect(ourError?.error.message).toContain(errorMessage)
+          }
+        }
+      ),
+      { numRuns: 20, timeout: 3000 } // Reduced runs for faster tests
+    )
+  }, 8000) // Increased test timeout
+
+  it('should handle empty state scenarios correctly', async () => {
+    // Feature: erp-system-improvements, Property 2: Network Error Recovery
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom('shipping', 'banking'),
+        async (dataType) => {
+          const emptyState = errorHandlingService.handleEmptyState('test-operation', dataType)
+          
+          // Verify empty state response structure
+          expect(emptyState.isEmpty).toBe(true)
+          expect(emptyState.message).toBeDefined()
+          expect(emptyState.message.length).toBeGreaterThan(0)
+          expect(Array.isArray(emptyState.suggestions)).toBe(true)
+          expect(emptyState.suggestions.length).toBeGreaterThan(0)
+          
+          // Verify data type specific messages
+          if (dataType === 'shipping') {
+            expect(emptyState.message.toLowerCase()).toContain('shipping')
+          } else if (dataType === 'banking') {
+            expect(emptyState.message.toLowerCase()).toContain('banking')
+          }
+        }
+      ),
+      { numRuns: 50 }
     )
   })
 })

@@ -1,78 +1,23 @@
-import {
-  Geist,
-  Inter,
-  Montserrat,
-  Overpass_Mono,
-  Poppins,
-  Roboto,
-  PT_Sans,
-  Plus_Jakarta_Sans,
-  Hedvig_Letters_Serif,
-  Kumbh_Sans
-} from "next/font/google";
+// Temporary system fonts configuration to bypass Google Fonts network issues during Docker build
+// System fonts provide excellent fallback and work in all environments
+
 import { cn } from "@/lib/utils";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-
-const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
-
-const roboto = Roboto({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  variable: "--font-roboto"
-});
-
-const plus_jakarta_sans = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "800"],
-  variable: "--font-plus-jakarta-sans"
-});
-
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-montserrat"
-});
-
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-poppins"
-});
-
-const overpass_mono = Overpass_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  variable: "--font-overpass-mono"
-});
-
-const ptSans = PT_Sans({
-  variable: "--font-pt-sans",
-  subsets: ["latin"],
-  weight: ["400", "700"]
-});
-
-const hedvig_letters_serif = Hedvig_Letters_Serif({
-  subsets: ["latin"],
-  weight: ["400"],
-  variable: "--font-hedvig-letters-serif"
-});
-
-const kumbh_sans = Kumbh_Sans({
-  subsets: ["latin"],
-  weight: ["400"],
-  variable: "--font-kumbh-sans"
-});
-
+// Use system font stack - no external dependencies
+// These fonts are available on all systems and provide excellent rendering
 export const fontVariables = cn(
-  geist.variable,
-  inter.variable,
-  roboto.variable,
-  montserrat.variable,
-  poppins.variable,
-  overpass_mono.variable,
-  ptSans.variable,
-  plus_jakarta_sans.variable,
-  hedvig_letters_serif.variable,
-  kumbh_sans.variable
+  // Modern system font stack
+  "font-sans"
 );
+
+// Export for backwards compatibility if any code imports specific fonts
+export const inter = { variable: "--font-inter" };
+export const geist = { variable: "--font-geist" };
+export const roboto = { variable: "--font-roboto" };
+export const montserrat = { variable: "--font-montserrat" };
+export const poppins = { variable: "--font-poppins" };
+export const overpass_mono = { variable: "--font-overpass-mono" };
+export const ptSans = { variable: "--font-pt-sans" };
+export const plus_jakarta_sans = { variable: "--font-plus-jakarta-sans" };
+export const hedvig_letters_serif = { variable: "--font-hedvig-letters-serif" };
+export const kumbh_sans = { variable: "--font-kumbh-sans" };

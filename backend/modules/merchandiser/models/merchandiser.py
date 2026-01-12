@@ -132,9 +132,9 @@ class FinishedGoodDetail(Base):
 
 class PackingGoodDetail(Base):
     """
-    Packing Good Details - 7 fields
+    Packing Good Details - 12 fields
     Fields: Product ID, Product Name, Category, Sub-Category, UoM,
-            Consumable Flag, Remarks
+            Consumable Flag, Carton Dimensions (L/W/H), Carton Weight, Remarks
     """
     __tablename__ = "packing_good_details"
 
@@ -145,6 +145,10 @@ class PackingGoodDetail(Base):
     sub_category = Column(String, nullable=True)  # Sub-Category
     uom = Column(String, nullable=False, default="piece")  # Unit of Measure
     consumable_flag = Column(Boolean, default=True)  # Consumable Flag
+    carton_length = Column(Float, nullable=True)  # Carton length in cm
+    carton_width = Column(Float, nullable=True)  # Carton width in cm
+    carton_height = Column(Float, nullable=True)  # Carton height in cm
+    carton_weight = Column(Float, nullable=True)  # Carton weight in kg
     remarks = Column(Text, nullable=True)  # Remarks
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

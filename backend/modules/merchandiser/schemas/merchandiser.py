@@ -216,6 +216,10 @@ class PackingGoodDetailBase(BaseModel):
     sub_category: Optional[str] = None
     uom: str = Field(default="piece", description="Unit of Measure")
     consumable_flag: bool = Field(default=True, description="Is Consumable")
+    carton_length: Optional[float] = Field(None, description="Carton length in cm")
+    carton_width: Optional[float] = Field(None, description="Carton width in cm")
+    carton_height: Optional[float] = Field(None, description="Carton height in cm")
+    carton_weight: Optional[float] = Field(None, description="Carton weight in kg")
     remarks: Optional[str] = None
 
 
@@ -229,6 +233,10 @@ class PackingGoodDetailUpdate(BaseModel):
     sub_category: Optional[str] = None
     uom: Optional[str] = None
     consumable_flag: Optional[bool] = None
+    carton_length: Optional[float] = None
+    carton_width: Optional[float] = None
+    carton_height: Optional[float] = None
+    carton_weight: Optional[float] = None
     remarks: Optional[str] = None
 
 

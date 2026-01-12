@@ -247,7 +247,7 @@ export class ErrorHandlingService {
    * Generate unique error ID
    */
   private generateErrorId(): string {
-    return `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    return `err_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
   }
 
   /**
@@ -294,7 +294,7 @@ export class ErrorHandlingService {
   /**
    * Handle empty state scenarios
    */
-  public handleEmptyState(operation: string, dataType: string): {
+  public handleEmptyState(_operation: string, dataType: string): {
     isEmpty: boolean
     message: string
     suggestions: string[]
@@ -329,6 +329,3 @@ export class ErrorHandlingService {
 
 // Export singleton instance
 export const errorHandlingService = ErrorHandlingService.getInstance()
-
-// Export types for use in other modules
-export type { RetryConfig, ErrorContext, ErrorLogEntry }

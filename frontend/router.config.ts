@@ -51,6 +51,9 @@ export const LINKS = {
     TNA: () => ({ path: "/dashboard/erp/samples/tna" as const }),
     PLAN: () => ({ path: "/dashboard/erp/samples/plan" as const }),
     OPERATIONS: () => ({ path: "/dashboard/erp/samples/operations" as const }),
+    MANUFACTURING_OPERATIONS: () => ({ path: "/dashboard/erp/samples/manufacturing-operations" as const }),
+    WORKFLOW_DASHBOARD: () => ({ path: "/dashboard/erp/samples/workflow-dashboard" as const }),
+    WORKFLOW_BOARD: () => ({ path: "/dashboard/erp/samples/workflow-board" as const }),
     SMV: () => ({ path: "/dashboard/erp/samples/smv" as const }),
     MRP: () => ({ path: "/dashboard/erp/samples/mrp" as const }),
   } as const,
@@ -117,6 +120,15 @@ export const PATHS = {
     CREATE: () => ({ root: "/buyers" as const }),
     UPDATE: (id: number) => ({ root: `/buyers/${id}` as const }),
     DELETE: (id: number) => ({ root: `/buyers/${id}` as const }),
+    TYPES: {
+      LIST: (isActive?: boolean) => ({
+        root: `/buyers/types${isActive !== undefined ? `?is_active=${isActive}` : ""}` as const,
+      }),
+      DETAIL: (id: number) => ({ root: `/buyers/types/${id}` as const }),
+      CREATE: () => ({ root: "/buyers/types" as const }),
+      UPDATE: (id: number) => ({ root: `/buyers/types/${id}` as const }),
+      DELETE: (id: number) => ({ root: `/buyers/types/${id}` as const }),
+    } as const,
   } as const,
 
   // Suppliers
@@ -144,10 +156,10 @@ export const PATHS = {
   // Shipping
   SHIPPING: {
     LIST: (limit?: number) => ({
-      root: `/shipping${limit ? `?limit=${limit}` : `?limit=${API_LIMITS.DEFAULT}`}` as const,
+      root: `/shipping/${limit ? `?limit=${limit}` : `?limit=${API_LIMITS.DEFAULT}`}` as const,
     }),
     DETAIL: (id: number) => ({ root: `/shipping/${id}` as const }),
-    CREATE: () => ({ root: "/shipping" as const }),
+    CREATE: () => ({ root: "/shipping/" as const }),
     UPDATE: (id: number) => ({ root: `/shipping/${id}` as const }),
     DELETE: (id: number) => ({ root: `/shipping/${id}` as const }),
   } as const,
@@ -155,10 +167,10 @@ export const PATHS = {
   // Banking
   BANKING: {
     LIST: (limit?: number) => ({
-      root: `/banking${limit ? `?limit=${limit}` : `?limit=${API_LIMITS.DEFAULT}`}` as const,
+      root: `/banking/${limit ? `?limit=${limit}` : `?limit=${API_LIMITS.DEFAULT}`}` as const,
     }),
     DETAIL: (id: number) => ({ root: `/banking/${id}` as const }),
-    CREATE: () => ({ root: "/banking" as const }),
+    CREATE: () => ({ root: "/banking/" as const }),
     UPDATE: (id: number) => ({ root: `/banking/${id}` as const }),
     DELETE: (id: number) => ({ root: `/banking/${id}` as const }),
   } as const,

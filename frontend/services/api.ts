@@ -267,6 +267,54 @@ export const buyersService = {
 };
 
 // ============================================================================
+// BUYER TYPES SERVICE
+// ============================================================================
+
+export const buyerTypesService = {
+  getAll: async (isActive?: boolean) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, PATHS.BUYERS.TYPES.LIST(isActive).root, null, "GET");
+  },
+
+  getById: async (id: number) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, PATHS.BUYERS.TYPES.DETAIL(id).root, null, "GET");
+  },
+
+  create: async (data: Record<string, any>) => {
+    const basePath = getBasePath();
+    return getAPIResponse(
+      basePath,
+      PATHS.BUYERS.TYPES.CREATE().root,
+      null,
+      "POST",
+      JSON.stringify(data)
+    );
+  },
+
+  update: async (id: number, data: Record<string, any>) => {
+    const basePath = getBasePath();
+    return getAPIResponse(
+      basePath,
+      PATHS.BUYERS.TYPES.UPDATE(id).root,
+      null,
+      "PUT",
+      JSON.stringify(data)
+    );
+  },
+
+  delete: async (id: number) => {
+    const basePath = getBasePath();
+    return getAPIResponse(
+      basePath,
+      PATHS.BUYERS.TYPES.DELETE(id).root,
+      null,
+      "DELETE"
+    );
+  },
+};
+
+// ============================================================================
 // SUPPLIERS SERVICE
 // ============================================================================
 
@@ -3090,6 +3138,7 @@ export const api = {
   auth: authService,
   users: usersService,
   buyers: buyersService,
+  buyerTypes: buyerTypesService,
   suppliers: suppliersService,
   contacts: contactsService,
   shipping: shippingService,
@@ -3115,3 +3164,215 @@ export const api = {
 // ============================================================================
 
 export type ApiType = typeof api;
+
+// ============================================================================
+// WORKFLOW SERVICES
+// ============================================================================
+
+export const workflowService = {
+  createWorkflow: async (data: Record<string, any>) => {
+    const basePath = getBasePath();
+    return getAPIResponse(
+      basePath,
+      "/workflows",
+      null,
+      "POST",
+      JSON.stringify(data)
+    );
+  },
+
+  getWorkflow: async (id: number) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/workflows/${id}`, null, "GET");
+  },
+
+  getWorkflows: async (filters?: Record<string, any>) => {
+    const basePath = getBasePath();
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, value.toString());
+        }
+      });
+    }
+    const queryString = params.toString() ? `?${params.toString()}` : "";
+    return getAPIResponse(basePath, `/workflows${queryString}`, null, "GET");
+  },
+
+  getStatistics: async () => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, "/workflows/statistics", null, "GET");
+  },
+
+  updateWorkflow: async (id: number, data: Record<string, any>) => {
+    const basePath = getBasePath();
+    return getAPIResponse(
+      basePath,
+      `/workflows/${id}`,
+      null,
+      "PUT",
+      JSON.stringify(data)
+    );
+  },
+
+  deleteWorkflow: async (id: number) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/workflows/${id}`, null, "DELETE");
+  },
+
+  getWorkflowCards: async (workflowId: number) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/workflows/${workflowId}/cards`, null, "GET");
+  },
+
+  updateCardStatus: async (cardId: number, status: string, reason?: string) => {
+    const basePath = getBasePath();
+    const data = { status, reason };
+    return getAPIResponse(
+      basePath,
+      `/workflow-cards/${cardId}/status`,
+      null,
+      "PUT",
+      JSON.stringify(data)
+    );
+  },
+
+  updateCardAssignee: async (cardId: number, assignee: string) => {
+    const basePath = getBasePath();
+    return getAPIResponse(
+      basePath,
+      `/workflow-cards/${cardId}/assignee`,
+      null,
+      "PUT",
+      JSON.stringify({ assignee })
+    );
+  },
+
+  addCardComment: async (cardId: number, comment: string) => {
+    const basePath = getBasePath();
+    return getAPIResponse(
+      basePath,
+      `/workflow-cards/${cardId}/comments`,
+      null,
+      "POST",
+      JSON.stringify({ comment_text: comment })
+    );
+  },
+
+  uploadCardAttachment: async (cardId: number, file: File) => {
+    const basePath = getBasePath();
+    const formData = new FormData();
+    formData.append("file", file);
+    return getAPIResponse(
+      basePath,
+      `/workflow-cards/${cardId}/attachments`,
+      null,
+      "POST",
+      formData,
+      true
+    );
+  },
+};
+
+export const workflowTemplateService = {
+  getTemplates: async (templateName?: string) => {
+    const basePath = getBasePath();
+    const params = templateName ? `?template_name=${templateName}` : "";
+    return getAPIResponse(basePath, `/workflow-templates${params}`, null, "GET");
+  },
+
+  createTemplate: async (data: Record<string, any>) => {
+    const basePath = getBasePath();
+    return getAPIResponse(
+      basePath,
+      "/workflow-templates",
+      null,
+      "POST",
+      JSON.stringify(data)
+    );
+  },
+
+  updateTemplate: async (id: number, data: Record<string, any>) => {
+    const basePath = getBasePath();
+    return getAPIResponse(
+      basePath,
+      `/workflow-templates/${id}`,
+      null,
+      "PUT",
+      JSON.stringify(data)
+    );
+  },
+
+  deleteTemplate: async (id: number) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/workflow-templates/${id}`, null, "DELETE");
+  },
+};
+
+// Color Master Service (with TCX, HEX, RGB)
+export const colorMasterService = {
+  getAll: async (buyerId?: number) => {
+    const basePath = getBasePath();
+    const query = buyerId ? `?buyer_id=${buyerId}` : '';
+    return getAPIResponse(basePath, `/color-master/colors${query}`, null, "GET");
+  },
+
+  getById: async (id: number) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/color-master/colors/${id}`, null, "GET");
+  },
+
+  create: async (data: any) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/color-master/colors`, null, "POST", JSON.stringify(data));
+  },
+
+  update: async (id: number, data: any) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/color-master/colors/${id}`, null, "PUT", JSON.stringify(data));
+  },
+
+  delete: async (id: number) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/color-master/colors/${id}`, null, "DELETE");
+  },
+};
+
+// Size Chart Service
+export const sizeChartService = {
+  getProductTypes: async () => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/size-charts/product-types`, null, "GET");
+  },
+
+  getProfiles: async (buyerId?: number) => {
+    const basePath = getBasePath();
+    const query = buyerId ? `?buyer_id=${buyerId}` : '';
+    return getAPIResponse(basePath, `/size-charts/profiles${query}`, null, "GET");
+  },
+
+  getAll: async (profileId?: number, productTypeId?: number) => {
+    const basePath = getBasePath();
+    let query = '?';
+    if (profileId) query += `profile_id=${profileId}&`;
+    if (productTypeId) query += `product_type_id=${productTypeId}&`;
+    query = query.slice(0, -1); // Remove trailing & or ?
+    return getAPIResponse(basePath, `/size-charts${query}`, null, "GET");
+  },
+
+  create: async (data: any) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/size-charts`, null, "POST", JSON.stringify(data));
+  },
+
+  update: async (id: number, data: any) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/size-charts/${id}`, null, "PUT", JSON.stringify(data));
+  },
+
+  delete: async (id: number) => {
+    const basePath = getBasePath();
+    return getAPIResponse(basePath, `/size-charts/${id}`, null, "DELETE");
+  },
+};

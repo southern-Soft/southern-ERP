@@ -13,10 +13,11 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Edit, Trash2, Search, X, Eye, Upload, Check, ChevronsUpDown, FileText, Info, RefreshCw, Plus, CheckCircle2 } from "lucide-react";
-import { samplesService, buyersService, api } from "@/services/api";
+import { Edit, Trash2, Search, X, Eye, Upload, Check, ChevronsUpDown, FileText, Info, RefreshCw, Plus, CheckCircle2, ExternalLink, Clock, AlertCircle, Zap } from "lucide-react";
+import { samplesService, buyersService, api, workflowService, colorMasterService, sizeChartService, sizesService } from "@/services/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
 
 const SAMPLE_CATEGORIES = ["Proto", "Fit", "PP", "SMS", "TOP", "Salesman", "Photo Shoot", "Production"];
 
@@ -52,12 +53,23 @@ export default function SampleRequestPage() {
     item: "",
     request_pcs: "",
     sample_category: "Proto",
-    color_name: "",
-    size_name: "",
+    priority: "normal",
+    color_ids: [] as number[],
+    size_ids: [] as number[],
+    color_name: "", // Legacy field for backward compatibility
+    size_name: "", // Legacy field for backward compatibility
     additional_instruction: [] as Array<{instruction: string, done: boolean}>,
     techpack_url: "",
     techpack_filename: "",
   });
+
+  const [colors, setColors] = useState<any[]>([]);
+  const [sizes, setSizes] = useState<any[]>([]);
+  const [yarns, setYarns] = useState<any[]>([]);
+  const [trims, setTrims] = useState<any[]>([]);
+  const [yarnOpen, setYarnOpen] = useState(false);
+  const [trimsOpen, setTrimsOpen] = useState(false);
+  const [highPriorityOnly, setHighPriorityOnly] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -67,15 +79,43 @@ export default function SampleRequestPage() {
     applyFilters();
   }, [requests, filters]);
 
+  // Load colors and sizes when buyer changes
+  useEffect(() => {
+    if (formData.buyer_id) {
+      loadColorsAndSizes(parseInt(formData.buyer_id));
+    } else {
+      setColors([]);
+      setSizes([]);
+    }
+  }, [formData.buyer_id]);
+
+  const loadColorsAndSizes = async (buyerId: number) => {
+    try {
+      // Load colors filtered by buyer (buyer-specific + general colors)
+      const colorData = await colorMasterService.getAll(buyerId);
+      setColors(Array.isArray(colorData) ? colorData : []);
+
+      // Load all sizes (using existing sizes API)
+      const sizeData = await sizesService.getAll("");
+      setSizes(Array.isArray(sizeData) ? sizeData : []);
+    } catch (error) {
+      console.error("Failed to load colors/sizes:", error);
+    }
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [reqData, buyerData] = await Promise.all([
+      const [reqData, buyerData, yarnData, trimsData] = await Promise.all([
         samplesService.requests.getAll(),
         buyersService.getAll(),
+        api.merchandiser.yarn.getAll().catch(() => []),
+        api.merchandiser.trims.getAll().catch(() => []),
       ]);
       setRequests(Array.isArray(reqData) ? reqData : []);
       setBuyers(Array.isArray(buyerData) ? buyerData : []);
+      setYarns(Array.isArray(yarnData) ? yarnData : []);
+      setTrims(Array.isArray(trimsData) ? trimsData : []);
     } catch (error) {
       console.error("Failed to load data:", error);
       toast.error("Failed to load data");
@@ -99,6 +139,9 @@ export default function SampleRequestPage() {
     }
     if (filters.category && filters.category !== "all") {
       filtered = filtered.filter((r) => r.sample_category === filters.category);
+    }
+    if (highPriorityOnly) {
+      filtered = filtered.filter((r) => r.priority === "urgent" || r.priority === "high");
     }
     setFilteredRequests(filtered);
   };
@@ -182,8 +225,11 @@ export default function SampleRequestPage() {
         required_date: formData.required_date ? new Date(formData.required_date).toISOString() : null,
         request_pcs: formData.request_pcs ? parseInt(formData.request_pcs) : null,
         sample_category: formData.sample_category,
-        color_name: formData.color_name || null,
-        size_name: formData.size_name || null,
+        priority: formData.priority || "normal",
+        color_ids: formData.color_ids,
+        size_ids: formData.size_ids,
+        color_name: formData.color_ids.length > 0 ? colors.filter(c => formData.color_ids.includes(c.id)).map(c => c.color_name).join(", ") : null,
+        size_name: formData.size_ids.length > 0 ? sizes.filter(s => formData.size_ids.includes(s.id)).map(s => s.size_name).join(", ") : null,
         additional_instruction: (() => {
           // Convert array to newline-separated string for backend (samples DB expects string)
           if (!formData.additional_instruction) return null;
@@ -238,6 +284,9 @@ export default function SampleRequestPage() {
       required_date: item.required_date?.split("T")[0] || "",
       request_pcs: item.request_pcs?.toString() || "",
       sample_category: item.sample_category || "Proto",
+      priority: item.priority || "normal",
+      color_ids: item.color_ids || [],
+      size_ids: item.size_ids || [],
       color_name: item.color_name || "",
       size_name: item.size_name || "",
       additional_instruction: (() => {
@@ -302,7 +351,8 @@ export default function SampleRequestPage() {
       yarn_id: "", yarn_details: "", trims_ids: "", trims_details: "",
       decorative_part: "", decorative_details: "",
       yarn_handover_date: "", trims_handover_date: "", required_date: "", request_pcs: "",
-      sample_category: "Proto", color_name: "", size_name: "", additional_instruction: [],
+      sample_category: "Proto", priority: "normal", color_ids: [], size_ids: [],
+      color_name: "", size_name: "", additional_instruction: [],
       techpack_url: "", techpack_filename: "",
     });
     setBuyerSearch("");
@@ -424,12 +474,115 @@ export default function SampleRequestPage() {
                   <Input className="h-10" type="number" value={formData.ply} onChange={(e) => setFormData({ ...formData, ply: e.target.value })} placeholder="2" />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Color Name</Label>
-                  <Input className="h-10" value={formData.color_name} onChange={(e) => setFormData({ ...formData, color_name: e.target.value })} />
+                  <Label className="text-sm font-medium">Priority</Label>
+                  <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Select priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="urgent">Urgent - Instant Needed</SelectItem>
+                      <SelectItem value="high">High Priority</SelectItem>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="low">Low Priority</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Size Name</Label>
-                  <Input className="h-10" value={formData.size_name} onChange={(e) => setFormData({ ...formData, size_name: e.target.value })} />
+                  <Label className="text-sm font-medium">Colors</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        className="h-10 w-full justify-between font-normal"
+                      >
+                        {formData.color_ids.length > 0
+                          ? `${formData.color_ids.length} color(s) selected`
+                          : "Select colors..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search colors..." />
+                        <CommandEmpty>No colors found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {colors.map((color) => (
+                              <CommandItem
+                                key={color.id}
+                                value={color.color_name}
+                                onSelect={() => {
+                                  const newColorIds = formData.color_ids.includes(color.id)
+                                    ? formData.color_ids.filter(id => id !== color.id)
+                                    : [...formData.color_ids, color.id];
+                                  setFormData({ ...formData, color_ids: newColorIds });
+                                }}
+                              >
+                                <div className="flex items-center gap-2 w-full">
+                                  <div
+                                    className="w-4 h-4 rounded border"
+                                    style={{ backgroundColor: color.hex_code }}
+                                  />
+                                  <span>{color.color_name}</span>
+                                  {color.tcx_code && (
+                                    <span className="text-xs text-muted-foreground ml-auto">{color.tcx_code}</span>
+                                  )}
+                                  {formData.color_ids.includes(color.id) && (
+                                    <Check className="ml-auto h-4 w-4" />
+                                  )}
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Sizes</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        className="h-10 w-full justify-between font-normal"
+                      >
+                        {formData.size_ids.length > 0
+                          ? `${formData.size_ids.length} size(s) selected`
+                          : "Select sizes..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search sizes..." />
+                        <CommandEmpty>No sizes found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {sizes.map((size) => (
+                              <CommandItem
+                                key={size.id}
+                                value={size.size_name}
+                                onSelect={() => {
+                                  const newSizeIds = formData.size_ids.includes(size.id)
+                                    ? formData.size_ids.filter(id => id !== size.id)
+                                    : [...formData.size_ids, size.id];
+                                  setFormData({ ...formData, size_ids: newSizeIds });
+                                }}
+                              >
+                                <span>{size.size_name}</span>
+                                {formData.size_ids.includes(size.id) && (
+                                  <Check className="ml-auto h-4 w-4" />
+                                )}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
 
@@ -441,11 +594,85 @@ export default function SampleRequestPage() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Yarn ID</Label>
-                  <Input className="h-10" value={formData.yarn_id} onChange={(e) => setFormData({ ...formData, yarn_id: e.target.value })} />
+                  <Popover open={yarnOpen} onOpenChange={setYarnOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox" className="h-10 w-full justify-between font-normal">
+                        {formData.yarn_id ? yarns.find(y => y.yarn_id === formData.yarn_id)?.yarn_id || formData.yarn_id : "Select yarn..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[300px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search yarn..." />
+                        <CommandEmpty>No yarn found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {yarns.map((yarn) => (
+                              <CommandItem
+                                key={yarn.yarn_id}
+                                value={yarn.yarn_id}
+                                onSelect={() => {
+                                  setFormData({ ...formData, yarn_id: yarn.yarn_id });
+                                  setYarnOpen(false);
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", formData.yarn_id === yarn.yarn_id ? "opacity-100" : "opacity-0")} />
+                                <div>
+                                  <div className="font-medium">{yarn.yarn_id}</div>
+                                  <div className="text-xs text-muted-foreground">{yarn.yarn_name || yarn.yarn_type}</div>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Trims ID</Label>
-                  <Input className="h-10" value={formData.trims_ids} onChange={(e) => setFormData({ ...formData, trims_ids: e.target.value })} placeholder="TRM-001, TRM-002" />
+                  <Label className="text-sm font-medium">Trims</Label>
+                  <Popover open={trimsOpen} onOpenChange={setTrimsOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox" className="h-10 w-full justify-between font-normal">
+                        {formData.trims_ids && formData.trims_ids.length > 0 
+                          ? `${formData.trims_ids.split(',').length} trim(s) selected`
+                          : "Select trims..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[300px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search trims..." />
+                        <CommandEmpty>No trims found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {trims.map((trim) => (
+                              <CommandItem
+                                key={trim.product_id}
+                                value={trim.product_id}
+                                onSelect={() => {
+                                  const currentTrims = formData.trims_ids ? formData.trims_ids.split(',').map(t => t.trim()).filter(Boolean) : [];
+                                  const isSelected = currentTrims.includes(trim.product_id);
+                                  const newTrims = isSelected
+                                    ? currentTrims.filter(t => t !== trim.product_id)
+                                    : [...currentTrims, trim.product_id];
+                                  setFormData({ ...formData, trims_ids: newTrims.join(', ') });
+                                }}
+                              >
+                                <div className="flex items-center w-full">
+                                  <Check className={cn("mr-2 h-4 w-4", formData.trims_ids?.includes(trim.product_id) ? "opacity-100" : "opacity-0")} />
+                                  <div className="flex-1">
+                                    <div className="font-medium">{trim.product_id}</div>
+                                    <div className="text-xs text-muted-foreground">{trim.product_name}</div>
+                                  </div>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Decorative Part</Label>
@@ -582,12 +809,24 @@ export default function SampleRequestPage() {
               {SAMPLE_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" onClick={() => setFilters({ search: "", buyer: "", category: "" })}>
+          <div className="flex items-center gap-2 px-3 py-2 border rounded-md bg-orange-50 dark:bg-orange-950">
+            <Zap className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+            <Label htmlFor="high-priority-filter" className="text-sm font-medium cursor-pointer whitespace-nowrap">
+              High Priority Only
+            </Label>
+            <Switch
+              id="high-priority-filter"
+              checked={highPriorityOnly}
+              onCheckedChange={setHighPriorityOnly}
+            />
+          </div>
+          <Button variant="outline" size="icon" onClick={() => { setFilters({ search: "", buyer: "", category: "" }); setHighPriorityOnly(false); }}>
             <X className="h-4 w-4" />
           </Button>
         </div>
         <div className="mt-2 text-sm text-muted-foreground">
           Showing {filteredRequests.length} of {requests.length} requests
+          {highPriorityOnly && <span className="ml-2 text-orange-600 dark:text-orange-400 font-medium">(High Priority Filter Active)</span>}
         </div>
       </Card>
 
@@ -605,6 +844,7 @@ export default function SampleRequestPage() {
               <TableHead>Color</TableHead>
               <TableHead>Size</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Priority</TableHead>
               <TableHead>Required Date</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -612,14 +852,21 @@ export default function SampleRequestPage() {
           <TableBody>
             {filteredRequests.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} className="text-center text-muted-foreground">
+                <TableCell colSpan={12} className="text-center text-muted-foreground">
                   {loading ? "Loading..." : "No sample requests found"}
                 </TableCell>
               </TableRow>
             ) : (
               filteredRequests.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-mono font-medium">{item.sample_id}</TableCell>
+                <TableRow key={item.id} className={item.priority === 'urgent' || item.priority === 'high' ? 'bg-orange-50 dark:bg-orange-950/20' : ''}>
+                  <TableCell className="font-mono font-medium">
+                    <div className="flex items-center gap-2">
+                      {(item.priority === 'urgent' || item.priority === 'high') && (
+                        <Zap className="h-4 w-4 text-orange-600 dark:text-orange-400 animate-pulse" />
+                      )}
+                      {item.sample_id}
+                    </div>
+                  </TableCell>
                   <TableCell>{item.buyer_name}</TableCell>
                   <TableCell>{item.sample_name}</TableCell>
                   <TableCell>{item.item || "-"}</TableCell>
@@ -628,6 +875,18 @@ export default function SampleRequestPage() {
                   <TableCell>{item.color_name || "-"}</TableCell>
                   <TableCell>{item.size_name || "-"}</TableCell>
                   <TableCell><Badge variant="outline">{item.sample_category}</Badge></TableCell>
+                  <TableCell>
+                    <Badge variant={
+                      item.priority === 'urgent' ? 'destructive' :
+                      item.priority === 'high' ? 'default' :
+                      item.priority === 'low' ? 'secondary' : 'outline'
+                    }>
+                      {item.priority === 'urgent' || item.priority === 'high' ? (
+                        <Zap className="h-3 w-3 mr-1 inline" />
+                      ) : null}
+                      {item.priority || 'normal'}
+                    </Badge>
+                  </TableCell>
                   <TableCell>{item.required_date?.split("T")[0] || "-"}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="icon" onClick={() => handleView(item)} title="View Details">

@@ -16,6 +16,11 @@ const nextConfig: NextConfig = {
   output: "standalone",
   productionBrowserSourceMaps: false,
 
+  // Experimental features for font optimization
+  experimental: {
+    optimizePackageImports: ['next/font/google'],
+  },
+
   // Turbopack configuration (Next.js 16+ default bundler)
   turbopack: {
     // Turbopack handles Node.js module fallbacks automatically

@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { QUERY_KEYS } from "@/query.config";
 import {
   buyersService,
+  buyerTypesService,
   suppliersService,
   contactsService,
   shippingService,
@@ -81,6 +82,65 @@ export function useDeleteBuyer() {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: [QUERY_KEYS.BUYERS.LIST().key],
+      });
+    },
+  });
+}
+
+// ============================================================================
+// BUYER TYPES HOOKS
+// ============================================================================
+
+export function useBuyerTypes(isActive?: boolean) {
+  return useQuery({
+    queryKey: [QUERY_KEYS.BUYER_TYPES.LIST().key, isActive],
+    queryFn: () => buyerTypesService.getAll(isActive),
+  });
+}
+
+export function useBuyerType(id: number) {
+  return useQuery({
+    queryKey: [QUERY_KEYS.BUYER_TYPES.DETAIL(id).key],
+    queryFn: () => buyerTypesService.getById(id),
+    enabled: !!id,
+  });
+}
+
+export function useCreateBuyerType() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, any>) => buyerTypesService.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [QUERY_KEYS.BUYER_TYPES.LIST().key],
+      });
+    },
+  });
+}
+
+export function useUpdateBuyerType() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Record<string, any> }) =>
+      buyerTypesService.update(id, data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({
+        queryKey: [QUERY_KEYS.BUYER_TYPES.LIST().key],
+      });
+      queryClient.invalidateQueries({
+        queryKey: [QUERY_KEYS.BUYER_TYPES.DETAIL(id).key],
+      });
+    },
+  });
+}
+
+export function useDeleteBuyerType() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => buyerTypesService.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [QUERY_KEYS.BUYER_TYPES.LIST().key],
       });
     },
   });

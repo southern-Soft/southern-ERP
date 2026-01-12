@@ -189,23 +189,6 @@ export default function AddNewManufacturingOperationsPage() {
                 )}
 
                 <div className="space-y-2">
-                  <Label>Operation Type *</Label>
-                  <Select
-                    value={formData.operation_type}
-                    onValueChange={(v) => setFormData({ ...formData, operation_type: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {OPERATION_TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
                   <Label>Operation Name *</Label>
                   <Input
                     value={formData.operation_name}
@@ -213,6 +196,24 @@ export default function AddNewManufacturingOperationsPage() {
                     placeholder="e.g., Panel Knitting, Collar Linking"
                     required
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Operation Type (Optional)</Label>
+                  <Select
+                    value={formData.operation_type}
+                    onValueChange={(v) => setFormData({ ...formData, operation_type: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select type (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {OPERATION_TYPES.map((t) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">

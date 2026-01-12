@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -31,628 +32,549 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, ArrowLeft, Edit, Trash2, Loader2, Search, Filter, Upload } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { api } from "@/services/api";
+import { Plus, Edit, Trash2, Loader2, Shirt, User, Users, Sparkles } from "lucide-react";
+import { api, sizeChartService } from "@/services/api";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 
-// Unit conversion functions
-const convertUnit = (value: number | null | undefined, fromUnit: string, toUnit: string): number | null => {
-  if (value === null || value === undefined || isNaN(value)) return null;
-  
-  // Convert to inches first (base unit)
-  let valueInInches = 0;
-  switch (fromUnit) {
-    case "inch":
-      valueInInches = value;
-      break;
-    case "cm":
-      valueInInches = value / 2.54;
-      break;
-    case "mm":
-      valueInInches = value / 25.4;
-      break;
-    case "feet":
-      valueInInches = value * 12;
-      break;
-    default:
-      return value;
-  }
-  
-  // Convert from inches to target unit
-  switch (toUnit) {
-    case "inch":
-      return Number(valueInInches.toFixed(2));
-    case "cm":
-      return Number((valueInInches * 2.54).toFixed(2));
-    case "mm":
-      return Number((valueInInches * 25.4).toFixed(2));
-    case "feet":
-      return Number((valueInInches / 12).toFixed(2));
-    default:
-      return value;
-  }
+// Measurement field definitions for each garment type
+const MEASUREMENT_FIELDS = {
+  Sweater: [
+    { key: "chest_bust", label: "Chest/Bust", required: true },
+    { key: "body_length", label: "Body Length", required: true },
+    { key: "sleeve_length", label: "Sleeve Length", required: true },
+    { key: "shoulder_width", label: "Shoulder Width", required: false },
+    { key: "waist", label: "Waist", required: false },
+    { key: "hem_width", label: "Hem Width", required: false },
+    { key: "neck_collar_width", label: "Neck/Collar Width", required: false },
+    { key: "cuff_width", label: "Cuff Width", required: false },
+  ],
+  Pants: [
+    { key: "waist", label: "Waist", required: true },
+    { key: "hip", label: "Hip", required: true },
+    { key: "inseam", label: "Inseam", required: true },
+    { key: "thigh", label: "Thigh", required: false },
+    { key: "knee", label: "Knee", required: false },
+    { key: "leg_opening", label: "Leg Opening/Hem", required: false },
+    { key: "front_rise", label: "Front Rise", required: false },
+    { key: "back_rise", label: "Back Rise", required: false },
+  ],
+  Jacket: [
+    { key: "chest_bust", label: "Chest/Bust", required: true },
+    { key: "body_length", label: "Body Length", required: true },
+    { key: "shoulder_width", label: "Shoulder Width", required: true },
+    { key: "sleeve_length", label: "Sleeve Length", required: false },
+    { key: "waist", label: "Waist", required: false },
+    { key: "hip", label: "Hip", required: false },
+    { key: "cuff_opening", label: "Cuff/Sleeve Opening", required: false },
+    { key: "collar_neck", label: "Collar/Neck", required: false },
+  ],
+  Hat: [
+    { key: "head_circumference", label: "Head Circumference", required: true },
+    { key: "height_crown", label: "Height/Crown", required: false },
+    { key: "brim_width", label: "Brim/Visor Width", required: false },
+  ],
+  Gloves: [
+    { key: "hand_circumference", label: "Hand Circumference", required: true },
+    { key: "hand_length", label: "Hand Length", required: true },
+    { key: "wrist_opening", label: "Wrist Opening", required: false },
+  ],
+  Muffler: [
+    { key: "length", label: "Length", required: true },
+    { key: "width", label: "Width", required: true },
+    { key: "hem_width", label: "Hem Width", required: false },
+  ],
 };
 
-const formatUnit = (unit: string): string => {
-  const unitMap: Record<string, string> = {
-    inch: "in",
-    cm: "cm",
-    mm: "mm",
-    feet: "ft",
-  };
-  return unitMap[unit] || unit;
-};
+const SIZE_NAMES = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL"];
 
-export default function SizeDetailsPage() {
-  const router = useRouter();
+export default function SizeDetailsNewPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingSize, setEditingSize] = useState<any>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterGarmentType, setFilterGarmentType] = useState<string>("all");
-  const [filterGender, setFilterGender] = useState<string>("all");
-  const [filterAgeGroup, setFilterAgeGroup] = useState<string>("all");
+  
+  // Tab states
+  const [selectedProfile, setSelectedProfile] = useState<string>("general");
+  const [selectedGender, setSelectedGender] = useState<string>("Male");
+  const [selectedProductType, setSelectedProductType] = useState<number | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<string>("cm");
 
-  const { data: sizesData, isLoading } = useQuery({
-    queryKey: ["sizeChart"],
-    queryFn: () => api.merchandiser.sizeChart.getAll(1000),
+  // Fetch product types and profiles
+  const { data: productTypes = [], isLoading: loadingTypes } = useQuery({
+    queryKey: ["productTypes"],
+    queryFn: () => sizeChartService.getProductTypes(),
   });
 
-  const createMutation = useMutation({
-    mutationFn: (data: any) => api.merchandiser.sizeChart.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sizeChart"] });
-      toast.success("Size chart created successfully");
-      setDialogOpen(false);
-      resetForm();
-    },
-    onError: () => toast.error("Failed to create size chart"),
+  const { data: profiles = [], isLoading: loadingProfiles } = useQuery({
+    queryKey: ["sizeChartProfiles"],
+    queryFn: () => sizeChartService.getProfiles(),
   });
 
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) =>
-      api.merchandiser.sizeChart.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sizeChart"] });
-      toast.success("Size chart updated successfully");
-      setDialogOpen(false);
-      setEditingSize(null);
-      resetForm();
-    },
-    onError: () => toast.error("Failed to update size chart"),
+  // Get current profile ID
+  const currentProfile = profiles.find((p: any) => 
+    p.profile_name.toLowerCase() === selectedProfile.toLowerCase()
+  );
+  const currentProfileId = currentProfile?.id;
+
+  // Fetch sizes based on current selections
+  const { data: sizesData = [], isLoading, refetch } = useQuery({
+    queryKey: ["sizeChart", currentProfileId, selectedProductType, selectedGender],
+    queryFn: () => sizeChartService.getAll(currentProfileId, selectedProductType || undefined),
+    enabled: !!currentProfileId && !!selectedProductType,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.merchandiser.sizeChart.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sizeChart"] });
-      toast.success("Size chart deleted successfully");
-    },
-    onError: () => toast.error("Failed to delete size chart"),
-  });
+  // Filter by gender client-side
+  const filteredSizes = sizesData.filter((s: any) => 
+    !s.gender || s.gender === selectedGender || s.gender === "Unisex"
+  );
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<any>({
     size_id: "",
     size_name: "",
-    garment_type: "",
-    gender: "",
-    age_group: "",
-    chest: "",
-    waist: "",
-    hip: "",
-    sleeve_length: "",
-    body_length: "",
-    shoulder_width: "",
-    inseam: "",
-    uom: "inch",
-    remarks: "",
+    gender: "Male",
+    // Dynamic measurement fields will be added based on product type
   });
 
   const resetForm = () => {
     setFormData({
       size_id: "",
       size_name: "",
-      garment_type: "",
-      gender: "",
-      age_group: "",
-      chest: "",
-      waist: "",
-      hip: "",
-      sleeve_length: "",
-      body_length: "",
-      shoulder_width: "",
-      inseam: "",
-      uom: "inch",
-      remarks: "",
+      gender: selectedGender,
     });
     setEditingSize(null);
+    setDialogOpen(false);
   };
 
   const handleEdit = (size: any) => {
     setEditingSize(size);
-    setFormData({
-      size_id: size.size_id || "",
-      size_name: size.size_name || "",
-      garment_type: size.garment_type || "",
-      gender: size.gender || "",
-      age_group: size.age_group || "",
-      chest: size.chest?.toString() || "",
-      waist: size.waist?.toString() || "",
-      hip: size.hip?.toString() || "",
-      sleeve_length: size.sleeve_length?.toString() || "",
-      body_length: size.body_length?.toString() || "",
-      shoulder_width: size.shoulder_width?.toString() || "",
-      inseam: size.inseam?.toString() || "",
-      uom: size.uom || "inch",
-      remarks: size.remarks || "",
-    });
+    setFormData(size);
     setDialogOpen(true);
   };
 
-  const handleDelete = (sizeId: string) => {
-    if (confirm("Are you sure you want to delete this size chart?")) {
-      deleteMutation.mutate(sizeId);
+  const generateAutoId = async () => {
+    if (!currentProfileId || !selectedProductType) {
+      toast.error("Please select profile and product type first");
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/v1/size-charts/generate-id?profile_id=${currentProfileId}&gender=${selectedGender}&product_type_id=${selectedProductType}`, {
+        method: "POST",
+      });
+      const data = await response.json();
+      setFormData({ ...formData, size_id: data.size_id });
+      toast.success("ID generated successfully");
+    } catch (error) {
+      toast.error("Failed to generate ID");
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const submitData = {
-      ...formData,
-      chest: formData.chest ? parseFloat(formData.chest) : null,
-      waist: formData.waist ? parseFloat(formData.waist) : null,
-      hip: formData.hip ? parseFloat(formData.hip) : null,
-      sleeve_length: formData.sleeve_length ? parseFloat(formData.sleeve_length) : null,
-      body_length: formData.body_length ? parseFloat(formData.body_length) : null,
-      shoulder_width: formData.shoulder_width ? parseFloat(formData.shoulder_width) : null,
-      inseam: formData.inseam ? parseFloat(formData.inseam) : null,
+    
+    if (!currentProfileId || !selectedProductType) {
+      toast.error("Please select profile and product type");
+      return;
+    }
+
+    const selectedType = productTypes.find((pt: any) => pt.id === selectedProductType);
+    const fields = MEASUREMENT_FIELDS[selectedType?.type_name as keyof typeof MEASUREMENT_FIELDS] || [];
+
+    // Build measurements object with only relevant fields
+    const measurements: any = {};
+    fields.forEach(field => {
+      if (formData[field.key]) {
+        measurements[field.key] = parseFloat(formData[field.key]) || 0;
+      }
+    });
+
+    const payload = {
+      size_id: formData.size_id,
+      size_name: formData.size_name,
+      profile_id: currentProfileId,
+      product_type_id: selectedProductType,
+      gender: selectedGender,
+      uom: selectedUnit,
+      measurements,
+      remarks: formData.remarks || "",
     };
 
-    if (editingSize) {
-      updateMutation.mutate({ id: editingSize.size_id, data: submitData });
-    } else {
-      createMutation.mutate(submitData);
+    try {
+      if (editingSize) {
+        await api.merchandiser.sizeChart.update(editingSize.size_id, payload);
+        toast.success("Size chart updated successfully");
+      } else {
+        await api.merchandiser.sizeChart.create(payload);
+        toast.success("Size chart created successfully");
+      }
+      queryClient.invalidateQueries({ queryKey: ["sizeChart"] });
+      resetForm();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save size chart");
     }
   };
 
-  // Filter and search logic
-  const filteredSizes = sizesData?.filter((size: any) => {
-    const matchesSearch =
-      !searchTerm ||
-      size.size_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      size.size_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      size.garment_type?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesGarmentType = filterGarmentType === "all" || size.garment_type === filterGarmentType;
-    const matchesGender = filterGender === "all" || size.gender === filterGender;
-    const matchesAgeGroup = filterAgeGroup === "all" || size.age_group === filterAgeGroup;
+  const handleDelete = async (sizeId: string) => {
+    if (!confirm("Are you sure you want to delete this size chart?")) return;
 
-    return matchesSearch && matchesGarmentType && matchesGender && matchesAgeGroup;
-  }) || [];
+    try {
+      await api.merchandiser.sizeChart.delete(sizeId);
+      toast.success("Size chart deleted successfully");
+      queryClient.invalidateQueries({ queryKey: ["sizeChart"] });
+    } catch (error) {
+      toast.error("Failed to delete size chart");
+    }
+  };
 
-  // Get unique values for filters
-  const garmentTypes = [...new Set(sizesData?.map((s: any) => s.garment_type).filter(Boolean))] as string[];
-  const genders = [...new Set(sizesData?.map((s: any) => s.gender).filter(Boolean))] as string[];
-  const ageGroups = [...new Set(sizesData?.map((s: any) => s.age_group).filter(Boolean))] as string[];
+  // Get current product type config
+  const currentProductType = productTypes.find((pt: any) => pt.id === selectedProductType);
+  const currentFields = currentProductType 
+    ? MEASUREMENT_FIELDS[currentProductType.type_name as keyof typeof MEASUREMENT_FIELDS] || []
+    : [];
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Button
-            variant="ghost"
-            onClick={() => router.push("/dashboard/erp/merchandising")}
-            className="mb-2"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Merchandising
-          </Button>
-          <h1 className="text-3xl font-bold tracking-tight">Size Details & Chart</h1>
-          <p className="text-muted-foreground mt-2">
-            Manage size specifications and measurement charts for all garment types
+          <h1 className="text-3xl font-bold">Size Chart Management</h1>
+          <p className="text-muted-foreground">
+            Manage size charts by brand, gender, and product type
           </p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
-          <DialogTrigger asChild>
-            <Button onClick={() => resetForm()}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Size
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{editingSize ? "Edit" : "Add"} Size Chart</DialogTitle>
-              <DialogDescription>
-                Define all measurements for a specific size, garment type, gender, and age group
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="size_id">Size ID *</Label>
-                  <Input
-                    id="size_id"
-                    value={formData.size_id}
-                    onChange={(e) => setFormData({ ...formData, size_id: e.target.value })}
-                    placeholder="e.g., S001"
-                    required
-                    disabled={!!editingSize}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="size_name">Size Name *</Label>
-                  <Input
-                    id="size_name"
-                    value={formData.size_name}
-                    onChange={(e) => setFormData({ ...formData, size_name: e.target.value })}
-                    placeholder="e.g., XS, S, M, L"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="garment_type">Garment Type</Label>
-                  <Input
-                    id="garment_type"
-                    value={formData.garment_type}
-                    onChange={(e) => setFormData({ ...formData, garment_type: e.target.value })}
-                    placeholder="e.g., Sweater, T-Shirt, Pants"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="gender">Gender</Label>
-                  <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })}>
-                    <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Male">Male</SelectItem>
-                      <SelectItem value="Female">Female</SelectItem>
-                      <SelectItem value="Unisex">Unisex</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="age_group">Age Group</Label>
-                  <Select value={formData.age_group} onValueChange={(v) => setFormData({ ...formData, age_group: v })}>
-                    <SelectTrigger><SelectValue placeholder="Select age group" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Adult">Adult</SelectItem>
-                      <SelectItem value="Kids">Kids</SelectItem>
-                      <SelectItem value="Infant">Infant</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="uom">Unit of Measure</Label>
-                  <Select value={formData.uom} onValueChange={(v) => setFormData({ ...formData, uom: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="inch">Inch</SelectItem>
-                      <SelectItem value="cm">Centimeter (cm)</SelectItem>
-                      <SelectItem value="mm">Millimeter (mm)</SelectItem>
-                      <SelectItem value="feet">Feet</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="border-t pt-4">
-                <h4 className="font-semibold mb-4">Measurements ({formData.uom})</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="chest">Chest / Bust</Label>
-                    <Input
-                      id="chest"
-                      type="number"
-                      step="0.1"
-                      value={formData.chest}
-                      onChange={(e) => setFormData({ ...formData, chest: e.target.value })}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="waist">Waist</Label>
-                    <Input
-                      id="waist"
-                      type="number"
-                      step="0.1"
-                      value={formData.waist}
-                      onChange={(e) => setFormData({ ...formData, waist: e.target.value })}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="hip">Hip</Label>
-                    <Input
-                      id="hip"
-                      type="number"
-                      step="0.1"
-                      value={formData.hip}
-                      onChange={(e) => setFormData({ ...formData, hip: e.target.value })}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="shoulder_width">Shoulder Width</Label>
-                    <Input
-                      id="shoulder_width"
-                      type="number"
-                      step="0.1"
-                      value={formData.shoulder_width}
-                      onChange={(e) => setFormData({ ...formData, shoulder_width: e.target.value })}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="sleeve_length">Sleeve Length</Label>
-                    <Input
-                      id="sleeve_length"
-                      type="number"
-                      step="0.1"
-                      value={formData.sleeve_length}
-                      onChange={(e) => setFormData({ ...formData, sleeve_length: e.target.value })}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="body_length">Body Length</Label>
-                    <Input
-                      id="body_length"
-                      type="number"
-                      step="0.1"
-                      value={formData.body_length}
-                      onChange={(e) => setFormData({ ...formData, body_length: e.target.value })}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="inseam">Inseam</Label>
-                    <Input
-                      id="inseam"
-                      type="number"
-                      step="0.1"
-                      value={formData.inseam}
-                      onChange={(e) => setFormData({ ...formData, inseam: e.target.value })}
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Unit Comparison Section */}
-              {(formData.chest || formData.waist || formData.hip || formData.sleeve_length || formData.body_length || formData.shoulder_width || formData.inseam) && (
-                <div className="border-t pt-4">
-                  <h4 className="font-semibold mb-4">Unit Comparison</h4>
-                  <div className="rounded-lg border p-4 bg-muted/50">
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Measurement</TableHead>
-                            <TableHead>Inch</TableHead>
-                            <TableHead>cm</TableHead>
-                            <TableHead>mm</TableHead>
-                            <TableHead>Feet</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {[
-                            { label: "Chest / Bust", value: formData.chest },
-                            { label: "Waist", value: formData.waist },
-                            { label: "Hip", value: formData.hip },
-                            { label: "Sleeve Length", value: formData.sleeve_length },
-                            { label: "Body Length", value: formData.body_length },
-                            { label: "Shoulder Width", value: formData.shoulder_width },
-                            { label: "Inseam", value: formData.inseam },
-                          ]
-                            .filter((item) => item.value)
-                            .map((item) => {
-                              const numValue = parseFloat(item.value);
-                              return (
-                                <TableRow key={item.label}>
-                                  <TableCell className="font-medium">{item.label}</TableCell>
-                                  <TableCell>
-                                    {numValue
-                                      ? convertUnit(numValue, formData.uom, "inch")?.toFixed(2) || "-"
-                                      : "-"}{" "}
-                                    in
-                                  </TableCell>
-                                  <TableCell>
-                                    {numValue
-                                      ? convertUnit(numValue, formData.uom, "cm")?.toFixed(2) || "-"
-                                      : "-"}{" "}
-                                    cm
-                                  </TableCell>
-                                  <TableCell>
-                                    {numValue
-                                      ? convertUnit(numValue, formData.uom, "mm")?.toFixed(2) || "-"
-                                      : "-"}{" "}
-                                    mm
-                                  </TableCell>
-                                  <TableCell>
-                                    {numValue
-                                      ? convertUnit(numValue, formData.uom, "feet")?.toFixed(2) || "-"
-                                      : "-"}{" "}
-                                    ft
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                    {![
-                      { label: "Chest / Bust", value: formData.chest },
-                      { label: "Waist", value: formData.waist },
-                      { label: "Hip", value: formData.hip },
-                      { label: "Sleeve Length", value: formData.sleeve_length },
-                      { label: "Body Length", value: formData.body_length },
-                      { label: "Shoulder Width", value: formData.shoulder_width },
-                      { label: "Inseam", value: formData.inseam },
-                    ].some((item) => item.value) && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        Enter measurements above to see unit conversions
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="remarks">Remarks</Label>
-                <Textarea
-                  id="remarks"
-                  value={formData.remarks}
-                  onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                  placeholder="Additional notes or remarks"
-                  rows={2}
-                />
-              </div>
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                  {(createMutation.isPending || updateMutation.isPending) ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {editingSize ? "Updating..." : "Creating..."}
-                    </>
-                  ) : (
-                    editingSize ? "Update" : "Create"
-                  )}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
       </div>
 
-      {/* Filters and Search */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Size Chart Data</CardTitle>
-          <CardDescription>View and manage all size specifications</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col md:flex-row gap-4 mb-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by Size ID, Name, or Garment Type..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select value={filterGarmentType} onValueChange={setFilterGarmentType}>
-              <SelectTrigger className="w-[180px]">
-                <Filter className="mr-2 h-4 w-4" />
-                <SelectValue placeholder="Garment Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Garment Types</SelectItem>
-                {garmentTypes.map((type) => (
-                  <SelectItem key={type} value={type}>{type}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterGender} onValueChange={setFilterGender}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Gender" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Genders</SelectItem>
-                {genders.map((g) => (
-                  <SelectItem key={g} value={g}>{g}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterAgeGroup} onValueChange={setFilterAgeGroup}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Age Group" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Age Groups</SelectItem>
-                {ageGroups.map((ag) => (
-                  <SelectItem key={ag} value={ag}>{ag}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+      {/* Main Tabs: Regional/Brand Profiles */}
+      <Tabs value={selectedProfile} onValueChange={setSelectedProfile}>
+        <TabsList className="grid w-full grid-cols-4 h-12">
+          <TabsTrigger value="general" className="text-base">
+            <Shirt className="mr-2 h-5 w-5" />
+            General
+          </TabsTrigger>
+          <TabsTrigger value="h&m" className="text-base">
+            <Shirt className="mr-2 h-5 w-5" />
+            H&M
+          </TabsTrigger>
+          <TabsTrigger value="zara" className="text-base">
+            <Shirt className="mr-2 h-5 w-5" />
+            ZARA
+          </TabsTrigger>
+          <TabsTrigger value="primark" className="text-base">
+            <Shirt className="mr-2 h-5 w-5" />
+            Primark
+          </TabsTrigger>
+        </TabsList>
 
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : filteredSizes.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              {sizesData?.length === 0
-                ? "No size charts found. Click 'Add Size' to create one."
-                : "No sizes match your filters."}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Size ID</TableHead>
-                    <TableHead>Size Name</TableHead>
-                    <TableHead>Garment Type</TableHead>
-                    <TableHead>Gender</TableHead>
-                    <TableHead>Age Group</TableHead>
-                    <TableHead>Chest</TableHead>
-                    <TableHead>Waist</TableHead>
-                    <TableHead>Hip</TableHead>
-                    <TableHead>Sleeve</TableHead>
-                    <TableHead>Body Length</TableHead>
-                    <TableHead>Shoulder</TableHead>
-                    <TableHead>Inseam</TableHead>
-                    <TableHead>UoM</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredSizes.map((size: any) => (
-                    <TableRow key={size.id}>
-                      <TableCell className="font-medium">{size.size_id}</TableCell>
-                      <TableCell><Badge variant="outline">{size.size_name}</Badge></TableCell>
-                      <TableCell>{size.garment_type || "-"}</TableCell>
-                      <TableCell>{size.gender || "-"}</TableCell>
-                      <TableCell>{size.age_group || "-"}</TableCell>
-                      <TableCell>{size.chest || "-"}</TableCell>
-                      <TableCell>{size.waist || "-"}</TableCell>
-                      <TableCell>{size.hip || "-"}</TableCell>
-                      <TableCell>{size.sleeve_length || "-"}</TableCell>
-                      <TableCell>{size.body_length || "-"}</TableCell>
-                      <TableCell>{size.shoulder_width || "-"}</TableCell>
-                      <TableCell>{size.inseam || "-"}</TableCell>
-                      <TableCell><Badge variant="secondary">{size.uom}</Badge></TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(size)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(size.size_id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        {["general", "h&m", "zara", "primark"].map((profile) => (
+          <TabsContent key={profile} value={profile} className="mt-6">
+            {/* Gender Tabs */}
+            <Tabs value={selectedGender} onValueChange={setSelectedGender}>
+              <TabsList className="grid w-full max-w-md grid-cols-2">
+                <TabsTrigger value="Male">
+                  <User className="mr-2 h-4 w-4" />
+                  Male
+                </TabsTrigger>
+                <TabsTrigger value="Female">
+                  <Users className="mr-2 h-4 w-4" />
+                  Female
+                </TabsTrigger>
+              </TabsList>
+
+              {["Male", "Female"].map((gender) => (
+                <TabsContent key={gender} value={gender} className="mt-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="capitalize">
+                            {profile} - {gender} Size Charts
+                          </CardTitle>
+                          <CardDescription>
+                            Define size measurements for different garment types
+                          </CardDescription>
+                        </div>
+                        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                          <DialogTrigger asChild>
+                            <Button onClick={() => resetForm()}>
+                              <Plus className="mr-2 h-4 w-4" />
+                              New Size Chart
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                            <DialogHeader>
+                              <DialogTitle>
+                                {editingSize ? "Edit" : "Create"} Size Chart
+                              </DialogTitle>
+                              <DialogDescription>
+                                Profile: {profile.toUpperCase()} | Gender: {gender}
+                              </DialogDescription>
+                            </DialogHeader>
+
+                            <form onSubmit={handleSubmit} className="space-y-6">
+                              {/* Basic Info */}
+                              <div className="grid grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                  <Label>Product Type *</Label>
+                                  <Select
+                                    value={selectedProductType?.toString() || ""}
+                                    onValueChange={(value) => setSelectedProductType(parseInt(value))}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {productTypes.map((type: any) => (
+                                        <SelectItem key={type.id} value={type.id.toString()}>
+                                          {type.type_name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label>Size Name *</Label>
+                                  <Select
+                                    value={formData.size_name}
+                                    onValueChange={(value) => setFormData({ ...formData, size_name: value })}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select size" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {SIZE_NAMES.map((size) => (
+                                        <SelectItem key={size} value={size}>
+                                          {size}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label>Size ID</Label>
+                                  <div className="flex gap-2">
+                                    <Input
+                                      value={formData.size_id || ""}
+                                      onChange={(e) => setFormData({ ...formData, size_id: e.target.value })}
+                                      placeholder="SC-HM-M-SW-001"
+                                      className="flex-1"
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={generateAutoId}
+                                      title="Auto-generate ID"
+                                    >
+                                      <Sparkles className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-4 gap-4">
+                                <div className="space-y-2">
+                                  <Label>Unit</Label>
+                                  <Select value={selectedUnit} onValueChange={setSelectedUnit}>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="cm">Centimeter (cm)</SelectItem>
+                                      <SelectItem value="mm">Millimeter (mm)</SelectItem>
+                                      <SelectItem value="inch">Inch (in)</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
+                              {/* Dynamic Measurement Fields */}
+                              {selectedProductType && currentFields.length > 0 && (
+                                <>
+                                  <div className="border-t pt-4">
+                                    <h3 className="text-lg font-semibold mb-4">
+                                      {currentProductType?.type_name} Measurements
+                                    </h3>
+                                    <div className="grid grid-cols-4 gap-4">
+                                      {currentFields.map((field: any) => (
+                                        <div key={field.key} className="space-y-2">
+                                          <Label>
+                                            {field.label}
+                                            {field.required && <span className="text-destructive ml-1">*</span>}
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={formData[field.key] || ""}
+                                            onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                                            required={field.required}
+                                            placeholder={`in ${selectedUnit}`}
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Remarks */}
+                              <div className="space-y-2">
+                                <Label>Remarks</Label>
+                                <Textarea
+                                  value={formData.remarks || ""}
+                                  onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                                  placeholder="Additional notes..."
+                                  rows={2}
+                                />
+                              </div>
+
+                              <DialogFooter>
+                                <Button type="button" variant="outline" onClick={resetForm}>
+                                  Cancel
+                                </Button>
+                                <Button type="submit">
+                                  {editingSize ? "Update" : "Create"} Size Chart
+                                </Button>
+                              </DialogFooter>
+                            </form>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
+                    </CardHeader>
+
+                    <CardContent>
+                      {/* Product Type Selector */}
+                      <div className="mb-6 space-y-4">
+                        <div className="flex items-center gap-4">
+                          <div className="flex-1 max-w-xs">
+                            <Label>Select Product Type</Label>
+                            <Select
+                              value={selectedProductType?.toString() || ""}
+                              onValueChange={(value) => setSelectedProductType(parseInt(value))}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Choose garment type..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {productTypes.map((type: any) => (
+                                  <SelectItem key={type.id} value={type.id.toString()}>
+                                    {type.type_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {selectedProductType && (
+                            <div className="flex gap-2 items-end">
+                              <div>
+                                <Label>Unit</Label>
+                                <Select value={selectedUnit} onValueChange={setSelectedUnit}>
+                                  <SelectTrigger className="w-[120px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="cm">cm</SelectItem>
+                                    <SelectItem value="mm">mm</SelectItem>
+                                    <SelectItem value="inch">inch</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {selectedProductType && (
+                          <Badge variant="outline" className="text-sm">
+                            <Shirt className="mr-2 h-4 w-4" />
+                            {currentProductType?.type_name} - {currentFields.length} measurements
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Size Charts Table */}
+                      {selectedProductType ? (
+                        isLoading ? (
+                          <div className="flex justify-center items-center py-12">
+                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : filteredSizes.length === 0 ? (
+                          <div className="text-center py-12 text-muted-foreground">
+                            No size charts found for {currentProductType?.type_name} - {gender}
+                            <br />
+                            <Button
+                              variant="link"
+                              onClick={() => setDialogOpen(true)}
+                              className="mt-2"
+                            >
+                              Create your first size chart
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Size ID</TableHead>
+                                  <TableHead>Size Name</TableHead>
+                                  <TableHead>Gender</TableHead>
+                                  {currentFields.slice(0, 4).map((field: any) => (
+                                    <TableHead key={field.key}>
+                                      {field.label} ({selectedUnit})
+                                    </TableHead>
+                                  ))}
+                                  <TableHead className="text-right">Actions</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {filteredSizes.map((size: any) => (
+                                  <TableRow key={size.id}>
+                                    <TableCell className="font-mono">{size.auto_generated_id || size.size_id}</TableCell>
+                                    <TableCell><Badge>{size.size_name}</Badge></TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline">{size.gender || "Unisex"}</Badge>
+                                    </TableCell>
+                                    {currentFields.slice(0, 4).map((field: any) => (
+                                      <TableCell key={field.key}>
+                                        {size[field.key] || "-"}
+                                      </TableCell>
+                                    ))}
+                                    <TableCell className="text-right">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => handleEdit(size)}
+                                      >
+                                        <Edit className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => handleDelete(size.size_id)}
+                                      >
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )
+                      ) : (
+                        <div className="text-center py-12 text-muted-foreground">
+                          <Shirt className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                          <p>Select a product type to view or create size charts</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              ))}
+            </Tabs>
+          </TabsContent>
+        ))}
+      </Tabs>
     </div>
   );
 }

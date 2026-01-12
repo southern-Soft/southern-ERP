@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session, joinedload
 from typing import List
 from core.database import get_db_clients
 from core.logging import setup_logging
-from modules.clients.models.client import Buyer, ContactPerson, ShippingInfo, BankingInfo
+from modules.clients.models.client import Buyer, BuyerType, ContactPerson, ShippingInfo, BankingInfo
 from modules.clients.schemas.buyer import (
+    BuyerTypeCreate, BuyerTypeResponse, BuyerTypeUpdate,
     BuyerCreate, BuyerResponse, BuyerUpdate,
     ContactPersonCreate, ContactPersonResponse,
     ShippingInfoCreate, ShippingInfoResponse,
@@ -14,6 +15,105 @@ from modules.clients.schemas.buyer import (
 logger = setup_logging()
 
 router = APIRouter()
+
+
+# BuyerType endpoints
+@router.post("/types", response_model=BuyerTypeResponse, status_code=status.HTTP_201_CREATED)
+def create_buyer_type(buyer_type_data: BuyerTypeCreate, db: Session = Depends(get_db_clients)):
+    """Create a new buyer type"""
+    try:
+        # Check if buyer type name already exists
+        existing_type = db.query(BuyerType).filter(BuyerType.name == buyer_type_data.name).first()
+        if existing_type:
+            raise HTTPException(status_code=400, detail="Buyer type name already exists")
+        
+        new_buyer_type = BuyerType(**buyer_type_data.model_dump())
+        db.add(new_buyer_type)
+        db.commit()
+        db.refresh(new_buyer_type)
+        return new_buyer_type
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Buyer type creation error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create buyer type")
+
+
+@router.get("/types", response_model=List[BuyerTypeResponse])
+def get_buyer_types(
+    is_active: bool = Query(default=None, description="Filter by active status"),
+    db: Session = Depends(get_db_clients)
+):
+    """Get all buyer types"""
+    query = db.query(BuyerType)
+    if is_active is not None:
+        query = query.filter(BuyerType.is_active == is_active)
+    return query.order_by(BuyerType.name).all()
+
+
+@router.get("/types/{buyer_type_id}", response_model=BuyerTypeResponse)
+def get_buyer_type(buyer_type_id: int, db: Session = Depends(get_db_clients)):
+    """Get a specific buyer type"""
+    buyer_type = db.query(BuyerType).filter(BuyerType.id == buyer_type_id).first()
+    if not buyer_type:
+        raise HTTPException(status_code=404, detail="Buyer type not found")
+    return buyer_type
+
+
+@router.put("/types/{buyer_type_id}", response_model=BuyerTypeResponse)
+def update_buyer_type(buyer_type_id: int, buyer_type_data: BuyerTypeUpdate, db: Session = Depends(get_db_clients)):
+    """Update a buyer type"""
+    try:
+        buyer_type = db.query(BuyerType).filter(BuyerType.id == buyer_type_id).first()
+        if not buyer_type:
+            raise HTTPException(status_code=404, detail="Buyer type not found")
+
+        # Check if name is being updated and if it already exists
+        if buyer_type_data.name and buyer_type_data.name != buyer_type.name:
+            existing_type = db.query(BuyerType).filter(BuyerType.name == buyer_type_data.name).first()
+            if existing_type:
+                raise HTTPException(status_code=400, detail="Buyer type name already exists")
+
+        for key, value in buyer_type_data.model_dump(exclude_unset=True).items():
+            setattr(buyer_type, key, value)
+
+        db.commit()
+        db.refresh(buyer_type)
+        return buyer_type
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Buyer type update error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update buyer type")
+
+
+@router.delete("/types/{buyer_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_buyer_type(buyer_type_id: int, db: Session = Depends(get_db_clients)):
+    """Delete a buyer type"""
+    try:
+        buyer_type = db.query(BuyerType).filter(BuyerType.id == buyer_type_id).first()
+        if not buyer_type:
+            raise HTTPException(status_code=404, detail="Buyer type not found")
+
+        # Check if buyer type is being used by any buyers
+        buyers_using_type = db.query(Buyer).filter(Buyer.buyer_type_id == buyer_type_id).count()
+        if buyers_using_type > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete buyer type. {buyers_using_type} buyer(s) are using this type."
+            )
+
+        db.delete(buyer_type)
+        db.commit()
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Buyer type deletion error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete buyer type")
 
 
 # Contact Person endpoints
@@ -108,14 +208,14 @@ def get_buyers(
     db: Session = Depends(get_db_clients)
 ):
     """Get all buyers"""
-    buyers = db.query(Buyer).order_by(Buyer.id.desc()).offset(skip).limit(limit).all()
+    buyers = db.query(Buyer).options(joinedload(Buyer.buyer_type)).order_by(Buyer.id.desc()).offset(skip).limit(limit).all()
     return buyers
 
 
 @router.get("/{buyer_id}", response_model=BuyerResponse)
 def get_buyer(buyer_id: int, db: Session = Depends(get_db_clients)):
     """Get a specific buyer"""
-    buyer = db.query(Buyer).filter(Buyer.id == buyer_id).first()
+    buyer = db.query(Buyer).options(joinedload(Buyer.buyer_type)).filter(Buyer.id == buyer_id).first()
     if not buyer:
         raise HTTPException(status_code=404, detail="Buyer not found")
     return buyer

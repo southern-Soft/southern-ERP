@@ -27,6 +27,12 @@ export const QUERY_KEYS = {
     DETAIL: (id: number) => ({ key: `buyer-detail-${id}` as const }),
   } as const,
 
+  // Buyer Types
+  BUYER_TYPES: {
+    LIST: () => ({ key: "buyer-types-list" as const }),
+    DETAIL: (id: number) => ({ key: `buyer-type-detail-${id}` as const }),
+  } as const,
+
   // Suppliers
   SUPPLIERS: {
     LIST: () => ({ key: "suppliers-list" as const }),
