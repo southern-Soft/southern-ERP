@@ -29,8 +29,21 @@ export const APP_CONFIG = {
 export const API_CONFIG = {
   /** Base path for API requests (masked URL) */
   BASE_PATH: process.env.NEXT_PUBLIC_API_MASK_URL || "/api/v1",
-  /** Backend server URL */
-  BACKEND_URL: process.env.BACKEND_URL || process.env.API_URL || "http://backend:8000",
+  /** Backend server URL - MUST be set via environment variable for server-side rendering */
+  /** In browser, this is not used (API masking via next.config.ts rewrites) */
+  BACKEND_URL: (() => {
+    // Server-side: must be provided via env var
+    if (typeof window === "undefined") {
+      const url = process.env.BACKEND_URL || process.env.API_URL;
+      if (!url) {
+        console.warn("BACKEND_URL or API_URL not set - API rewrites may not work correctly");
+        return "http://backend:8000"; // Docker default fallback
+      }
+      return url;
+    }
+    // Browser: not used (API masking handles routing)
+    return "";
+  })(),
   /** Request timeout in milliseconds */
   TIMEOUT_MS: 30000,
 } as const;
@@ -46,7 +59,7 @@ export const FRONTEND_CONFIG = {
     process.env.NEXT_PUBLIC_BASE_URL ||
     (typeof window !== "undefined" ? window.location.origin : ""),
   /** Server port - read from environment */
-  PORT: process.env.PORT || process.env.FRONTEND_PORT || "3000",
+  PORT: process.env.PORT || process.env.FRONTEND_PORT || "2222",
 } as const;
 
 // ============================================================================
@@ -88,8 +101,8 @@ export const API_LIMITS = {
 // ============================================================================
 
 export const IMAGE_CONFIG = {
-  /** Allowed hostnames for next/image */
-  ALLOWED_HOSTNAMES: process.env.NEXT_PUBLIC_IMAGE_HOSTNAMES?.split(",") || ["localhost"],
+  /** Allowed hostnames for next/image - MUST be set via environment variable */
+  ALLOWED_HOSTNAMES: process.env.NEXT_PUBLIC_IMAGE_HOSTNAMES?.split(",").filter(Boolean) || [],
   /** Default avatar placeholder URL */
   AVATAR_PLACEHOLDER: process.env.NEXT_PUBLIC_AVATAR_PLACEHOLDER || "/avatars/default.png",
 } as const;

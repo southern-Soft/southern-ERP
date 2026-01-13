@@ -319,16 +319,132 @@ def get_sample_request(request_id: int, db: Session = Depends(get_db_samples)):
 
 @router.put("/requests/{request_id}", response_model=SampleRequestResponse)
 def update_sample_request(request_id: int, request_data: SampleRequestUpdate, db: Session = Depends(get_db_samples)):
-    """Update a sample request and notify merchandiser department"""
+    """Update a sample request, sync to merchandiser, and notify merchandiser department"""
     request = db.query(SampleRequest).filter(SampleRequest.id == request_id).first()
     if not request:
         raise HTTPException(status_code=404, detail="Sample request not found")
 
-    for key, value in request_data.model_dump(exclude_unset=True).items():
+    update_data = request_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
         setattr(request, key, value)
 
     db.commit()
     db.refresh(request)
+    
+    # Sync update to SamplePrimaryInfo in merchandiser database (BIDIRECTIONAL SYNC)
+    try:
+        from core.database import SessionLocalMerchandiser
+        from modules.merchandiser.models.merchandiser import SamplePrimaryInfo
+        from core.services.buyer_service import BuyerService
+        
+        merchandiser_db = SessionLocalMerchandiser()
+        try:
+            sample_primary = merchandiser_db.query(SamplePrimaryInfo).filter(
+                SamplePrimaryInfo.sample_id == request.sample_id
+            ).first()
+            
+            if sample_primary:
+                # Get buyer name if buyer_id changed
+                if 'buyer_id' in update_data:
+                    buyer_service = BuyerService()
+                    buyer_name = None
+                    try:
+                        buyer_info = buyer_service.get_by_id(update_data['buyer_id'])
+                        if buyer_info:
+                            buyer_name = buyer_info.get("buyer_name")
+                    except:
+                        pass
+                    if buyer_name:
+                        sample_primary.buyer_name = buyer_name
+                    sample_primary.buyer_id = update_data['buyer_id']
+                
+                # Update all matching fields (map SampleRequest to SamplePrimaryInfo)
+                if 'sample_name' in update_data:
+                    sample_primary.sample_name = update_data['sample_name']
+                if 'item' in update_data:
+                    sample_primary.item = update_data['item']
+                if 'gauge' in update_data:
+                    sample_primary.gauge = update_data['gauge']
+                if 'ply' in update_data:
+                    # SampleRequest has ply as int, SamplePrimaryInfo has it as string
+                    sample_primary.ply = str(update_data['ply']) if update_data['ply'] is not None else None
+                if 'sample_category' in update_data:
+                    sample_primary.sample_category = update_data['sample_category']
+                if 'color_name' in update_data:
+                    sample_primary.color_name = update_data['color_name']
+                if 'size_name' in update_data:
+                    sample_primary.size_name = update_data['size_name']
+                if 'yarn_id' in update_data:
+                    sample_primary.yarn_id = update_data['yarn_id']
+                    # Also update yarn_ids array if yarn_id is set
+                    if update_data['yarn_id']:
+                        sample_primary.yarn_ids = [update_data['yarn_id']]
+                if 'yarn_details' in update_data:
+                    sample_primary.yarn_details = update_data['yarn_details']
+                if 'trims_ids' in update_data:
+                    # SampleRequest has trims_ids as List[str], SamplePrimaryInfo also has it as JSON
+                    sample_primary.trims_ids = update_data['trims_ids']
+                if 'trims_details' in update_data:
+                    sample_primary.trims_details = update_data['trims_details']
+                if 'decorative_part' in update_data:
+                    # SampleRequest has decorative_part as string (comma-separated), SamplePrimaryInfo has it as JSON array
+                    decorative_part = update_data['decorative_part']
+                    if isinstance(decorative_part, str):
+                        # Convert comma-separated string to array
+                        sample_primary.decorative_part = [p.strip() for p in decorative_part.split(',') if p.strip()] if decorative_part else None
+                    elif isinstance(decorative_part, list):
+                        sample_primary.decorative_part = decorative_part
+                    else:
+                        sample_primary.decorative_part = None
+                if 'yarn_handover_date' in update_data:
+                    sample_primary.yarn_handover_date = update_data['yarn_handover_date']
+                if 'trims_handover_date' in update_data:
+                    sample_primary.trims_handover_date = update_data['trims_handover_date']
+                if 'required_date' in update_data:
+                    sample_primary.required_date = update_data['required_date']
+                if 'request_pcs' in update_data:
+                    sample_primary.request_pcs = update_data['request_pcs']
+                if 'additional_instruction' in update_data:
+                    # SampleRequest has additional_instruction as string (newline-separated with ✓ markers),
+                    # SamplePrimaryInfo has it as JSON array of objects
+                    additional_instruction = update_data['additional_instruction']
+                    if isinstance(additional_instruction, str):
+                        # Parse newline-separated string with optional ✓ markers
+                        lines = additional_instruction.split('\n')
+                        instructions = []
+                        for line in lines:
+                            trimmed = line.strip()
+                            if not trimmed:
+                                continue
+                            done = trimmed.startswith('✓')
+                            instruction_text = trimmed[1:].strip() if done else trimmed
+                            instructions.append({'instruction': instruction_text, 'done': done})
+                        sample_primary.additional_instruction = instructions if instructions else None
+                    elif isinstance(additional_instruction, list):
+                        sample_primary.additional_instruction = additional_instruction
+                    else:
+                        sample_primary.additional_instruction = None
+                if 'techpack_url' in update_data or 'techpack_filename' in update_data:
+                    # SampleRequest has techpack_url/filename as separate fields,
+                    # SamplePrimaryInfo has techpack_files as JSON array
+                    techpack_url = update_data.get('techpack_url') or request.techpack_url
+                    techpack_filename = update_data.get('techpack_filename') or request.techpack_filename
+                    if techpack_url or techpack_filename:
+                        sample_primary.techpack_files = [{
+                            'url': techpack_url or '',
+                            'filename': techpack_filename or '',
+                            'type': 'file'
+                        }]
+                    else:
+                        sample_primary.techpack_files = None
+                
+                merchandiser_db.commit()
+                logger.info(f"✅ Successfully synced sample request update for sample_id {request.sample_id} to merchandiser database")
+        finally:
+            merchandiser_db.close()
+    except Exception as sync_error:
+        # Log error but don't fail the samples update
+        logger.warning(f"Failed to sync sample request update to merchandiser database for sample_id {request.sample_id}: {str(sync_error)}", exc_info=True)
     
     # Create notifications for all merchandiser department users
     try:

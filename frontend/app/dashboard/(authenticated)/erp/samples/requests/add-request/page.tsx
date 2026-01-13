@@ -20,7 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { ArrowLeft, Loader2, Upload, FileText, Check, ChevronsUpDown, Plus, X, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { api } from "@/services/api";
+import { api, samplesService, colorMasterService, sizesService } from "@/services/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -32,8 +32,8 @@ export default function AddSampleRequestPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchParams = useSearchParams();
   
-  // Check if we're editing (via URL query param)
-  const editSampleId = searchParams.get("edit");
+  // Check if we're editing (via URL query param - using request ID)
+  const editRequestId = searchParams.get("edit");
   const [isEditing, setIsEditing] = useState(false);
 
   // Fetch required data
@@ -67,40 +67,30 @@ export default function AddSampleRequestPage() {
     },
   });
 
+  // Fetch colors - need buyer_id for filtering
+  const [selectedBuyerId, setSelectedBuyerId] = useState<number | null>(null);
   const { data: colorsData } = useQuery({
-    queryKey: ["colors"],
+    queryKey: ["colors", selectedBuyerId],
     queryFn: async () => {
       try {
-        const response = await fetch('/api/v1/color-master/colors');
-        if (!response.ok) return [];
-        return await response.json();
+        if (selectedBuyerId) {
+          return await colorMasterService.getAll(selectedBuyerId);
+        }
+        return [];
       } catch (error) {
         console.error('Failed to fetch colors:', error);
         return [];
       }
     },
+    enabled: !!selectedBuyerId,
   });
 
+  // Fetch sizes
   const { data: sizesData } = useQuery({
-    queryKey: ["size-charts"],
+    queryKey: ["sizes"],
     queryFn: async () => {
       try {
-        // Fetch all size charts from size details
-        const response = await fetch('/api/v1/size-charts');
-        if (!response.ok) return [];
-        const data = await response.json();
-        // Extract unique sizes with their IDs
-        const uniqueSizes = new Map();
-        data.forEach((chart: any) => {
-          if (chart.size_name && chart.id) {
-            uniqueSizes.set(chart.size_name, {
-              id: chart.id,
-              size_name: chart.size_name,
-              size_id: chart.size_id || chart.id
-            });
-          }
-        });
-        return Array.from(uniqueSizes.values());
+        return await sizesService.getAll("");
       } catch (error) {
         console.error('Failed to fetch sizes:', error);
         return [];
@@ -108,11 +98,11 @@ export default function AddSampleRequestPage() {
     },
   });
 
-  // Fetch all samples to find the one we're editing
-  const { data: allSamplesData } = useQuery({
-    queryKey: ["merchandiser", "samplePrimary"],
-    queryFn: () => api.merchandiser.samplePrimary.getAll(),
-    enabled: !!editSampleId,
+  // Fetch the sample request we're editing
+  const { data: sampleRequestData } = useQuery({
+    queryKey: ["samples", "requests", editRequestId],
+    queryFn: () => samplesService.requests.getById(parseInt(editRequestId!)),
+    enabled: !!editRequestId,
   });
 
   // Helper function to format gauge for display (remove "GG" suffix)
@@ -121,79 +111,78 @@ export default function AddSampleRequestPage() {
     return gauge.replace(/\s*GG\s*/gi, "").trim();
   };
 
-  // Find the sample we're editing
-  const sampleData = useMemo(() => {
-    if (!editSampleId || !allSamplesData) return null;
-    return Array.isArray(allSamplesData) 
-      ? allSamplesData.find((s: any) => s.sample_id === editSampleId)
-      : null;
-  }, [editSampleId, allSamplesData]);
-
-  // Load sample data into form when editing
+  // Load sample request data into form when editing
   useEffect(() => {
-    if (sampleData && editSampleId) {
+    if (sampleRequestData && editRequestId) {
       setIsEditing(true);
-      // Parse additional_instruction if it's a string (from sync)
+      setSelectedBuyerId(sampleRequestData.buyer_id);
+      
+      // Parse additional_instruction if it's a string
       let additionalInstructions = [];
-      if (sampleData.additional_instruction) {
-        if (typeof sampleData.additional_instruction === 'string') {
-          // Split by newline and parse
-          const lines = sampleData.additional_instruction.split('\n');
+      if (sampleRequestData.additional_instruction) {
+        if (typeof sampleRequestData.additional_instruction === 'string') {
+          const lines = sampleRequestData.additional_instruction.split('\n');
           additionalInstructions = lines.map((line: string) => {
             const trimmed = line.trim();
+            if (!trimmed) return null;
             const done = trimmed.startsWith('✓');
             const instruction = done ? trimmed.substring(1).trim() : trimmed;
             return { instruction, done };
-          }).filter((item: any) => item.instruction);
-        } else if (Array.isArray(sampleData.additional_instruction)) {
-          additionalInstructions = sampleData.additional_instruction;
+          }).filter((item: any) => item && item.instruction) as Array<{instruction: string, done: boolean}>;
+        } else if (Array.isArray(sampleRequestData.additional_instruction)) {
+          additionalInstructions = sampleRequestData.additional_instruction;
         }
       }
       
       // Parse decorative_part if it's a string
       let decorativeParts = [];
-      if (sampleData.decorative_part) {
-        if (typeof sampleData.decorative_part === 'string') {
-          decorativeParts = sampleData.decorative_part.split(',').map((p: string) => p.trim()).filter(Boolean);
-        } else if (Array.isArray(sampleData.decorative_part)) {
-          decorativeParts = sampleData.decorative_part;
+      if (sampleRequestData.decorative_part) {
+        if (typeof sampleRequestData.decorative_part === 'string') {
+          decorativeParts = sampleRequestData.decorative_part.split(',').map((p: string) => p.trim()).filter(Boolean);
+        } else if (Array.isArray(sampleRequestData.decorative_part)) {
+          decorativeParts = sampleRequestData.decorative_part;
+        }
+      }
+      
+      // Parse trims_ids
+      let trimsIds = [];
+      if (sampleRequestData.trims_ids) {
+        if (typeof sampleRequestData.trims_ids === 'string') {
+          trimsIds = sampleRequestData.trims_ids.split(',').map((id: string) => id.trim()).filter(Boolean);
+        } else if (Array.isArray(sampleRequestData.trims_ids)) {
+          trimsIds = sampleRequestData.trims_ids;
         }
       }
       
       setFormData({
-        sample_id: sampleData.sample_id || "",
-        buyer_id: sampleData.buyer_id?.toString() || "",
-        buyer_name: sampleData.buyer_name || "",
-        sample_name: sampleData.sample_name || "",
-        item: sampleData.item || "",
-        gauge: formatGaugeForDisplay(sampleData.gauge || ""),
-        ply: sampleData.ply || "",
-        sample_category: sampleData.sample_category || "Proto",
-        yarn_ids: Array.isArray(sampleData.yarn_ids) ? sampleData.yarn_ids : (sampleData.yarn_ids ? [sampleData.yarn_ids] : []),
-        yarn_id: sampleData.yarn_id || "",
-        yarn_details: sampleData.yarn_details || "",
-        component_yarn: sampleData.component_yarn || "",
-        count: sampleData.count || "",
-        trims_ids: Array.isArray(sampleData.trims_ids) ? sampleData.trims_ids : (sampleData.trims_ids ? [sampleData.trims_ids] : []),
-        trims_details: sampleData.trims_details || "",
+        buyer_id: sampleRequestData.buyer_id?.toString() || "",
+        buyer_name: sampleRequestData.buyer_name || "",
+        sample_name: sampleRequestData.sample_name || "",
+        item: sampleRequestData.item || "",
+        gauge: formatGaugeForDisplay(sampleRequestData.gauge || ""),
+        ply: sampleRequestData.ply?.toString() || "",
+        sample_category: sampleRequestData.sample_category || "Proto",
+        yarn_id: sampleRequestData.yarn_id || "",
+        yarn_details: sampleRequestData.yarn_details || "",
+        trims_ids: trimsIds,
+        trims_details: sampleRequestData.trims_details || "",
         decorative_part: decorativeParts,
-        color_ids: Array.isArray(sampleData.color_ids) ? sampleData.color_ids : (sampleData.color_id ? [sampleData.color_id] : []),
-        color_name: sampleData.color_name || "",
-        size_ids: Array.isArray(sampleData.size_ids) ? sampleData.size_ids : (sampleData.size_id ? [sampleData.size_id] : []),
-        size_name: sampleData.size_name || "",
-        priority: sampleData.priority || "normal",
-        yarn_handover_date: sampleData.yarn_handover_date ? new Date(sampleData.yarn_handover_date).toISOString().split('T')[0] : "",
-        trims_handover_date: sampleData.trims_handover_date ? new Date(sampleData.trims_handover_date).toISOString().split('T')[0] : "",
-        required_date: sampleData.required_date ? new Date(sampleData.required_date).toISOString().split('T')[0] : "",
-        request_pcs: sampleData.request_pcs?.toString() || "",
+        color_ids: Array.isArray(sampleRequestData.color_ids) ? sampleRequestData.color_ids : (sampleRequestData.color_ids ? [sampleRequestData.color_ids] : []),
+        color_name: sampleRequestData.color_name || "",
+        size_ids: Array.isArray(sampleRequestData.size_ids) ? sampleRequestData.size_ids : (sampleRequestData.size_ids ? [sampleRequestData.size_ids] : []),
+        size_name: sampleRequestData.size_name || "",
+        priority: sampleRequestData.priority || "normal",
+        yarn_handover_date: sampleRequestData.yarn_handover_date ? new Date(sampleRequestData.yarn_handover_date).toISOString().split('T')[0] : "",
+        trims_handover_date: sampleRequestData.trims_handover_date ? new Date(sampleRequestData.trims_handover_date).toISOString().split('T')[0] : "",
+        required_date: sampleRequestData.required_date ? new Date(sampleRequestData.required_date).toISOString().split('T')[0] : "",
+        request_pcs: sampleRequestData.request_pcs?.toString() || "",
         additional_instruction: additionalInstructions,
-        techpack_files: Array.isArray(sampleData.techpack_files) ? sampleData.techpack_files : [],
+        techpack_files: Array.isArray(sampleRequestData.techpack_files) ? sampleRequestData.techpack_files : (sampleRequestData.techpack_url ? [{ url: sampleRequestData.techpack_url, filename: sampleRequestData.techpack_filename || "techpack", type: "file" }] : []),
       });
     }
-  }, [sampleData, editSampleId]);
+  }, [sampleRequestData, editRequestId]);
 
   const [formData, setFormData] = useState({
-    sample_id: "",
     buyer_id: "",
     buyer_name: "",
     sample_name: "",
@@ -202,24 +191,21 @@ export default function AddSampleRequestPage() {
     ply: "",
     sample_category: "Proto",
     priority: "normal" as string,
-    yarn_ids: [] as string[],
     yarn_id: "",
     yarn_details: "",
-    component_yarn: "",
-    count: "",
     trims_ids: [] as string[],
     trims_details: "",
-    decorative_part: [] as string[],  // Array of decorative parts
-    color_ids: [] as number[],  // Array of color IDs
+    decorative_part: [] as string[],
+    color_ids: [] as number[],
     color_name: "",
-    size_ids: [] as number[],  // Array of size IDs
+    size_ids: [] as number[],
     size_name: "",
     yarn_handover_date: "",
     trims_handover_date: "",
     required_date: "",
     request_pcs: "",
-    additional_instruction: [] as Array<{instruction: string, done: boolean}>,  // Array of instructions with status
-    techpack_files: [] as Array<{url: string, filename: string, type: string}>,  // Array of techpack files
+    additional_instruction: [] as Array<{instruction: string, done: boolean}>,
+    techpack_files: [] as Array<{url: string, filename: string, type: string}>,
   });
 
   const [buyerOpen, setBuyerOpen] = useState(false);
@@ -241,61 +227,32 @@ export default function AddSampleRequestPage() {
   const [yarnOpen, setYarnOpen] = useState(false);
   const [trimsOpen, setTrimsOpen] = useState(false);
 
-  // Mutation for creating sample
-  const createPrimaryMutation = useMutation({
-    mutationFn: (data: any) => api.merchandiser.samplePrimary.create(data),
+  // Mutation for updating sample request
+  const updateRequestMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number, data: any }) => samplesService.requests.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["merchandiser", "samplePrimary"] });
-      toast.success("Sample request created successfully");
-      
-      // Close this tab and navigate parent window back
-      if (window.opener) {
-        // Send message to parent to refresh data (for React Query)
-        try {
-          window.opener.postMessage({ type: 'SAMPLE_UPDATED', source: 'merchandising' }, '*');
-        } catch (e) {
-          // Ignore if postMessage fails
-        }
-        // Navigate parent window back to sample development page (will trigger refresh)
-        window.opener.location.href = "/dashboard/erp/merchandising/sample-development";
-        window.close();
-      } else {
-        // If not opened from another window, just navigate back
-        router.push("/dashboard/erp/merchandising/sample-development");
-      }
-    },
-    onError: (error: any) => {
-      toast.error(`Failed to create sample: ${error.message}`);
-    },
-  });
-
-  // Mutation for updating sample
-  const updatePrimaryMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string, data: any }) => api.merchandiser.samplePrimary.update(id, data),
-    onSuccess: () => {
-      // Invalidate both Merchandiser and Samples queries for bidirectional sync
-      queryClient.invalidateQueries({ queryKey: ["merchandiser", "samplePrimary"] });
+      // Invalidate both Samples and Merchandiser queries for bidirectional sync
       queryClient.invalidateQueries({ queryKey: ["samples", "requests"] });
-      toast.success("Sample request updated successfully and synced to Sample Department");
+      queryClient.invalidateQueries({ queryKey: ["merchandiser", "samplePrimary"] });
+      toast.success("Sample request updated successfully and synced to Merchandising");
       
       // Close this tab and navigate parent window back
       if (window.opener) {
-        // Send message to parent to refresh data (for React Query)
+        // Send message to parent to refresh data
         try {
-          window.opener.postMessage({ type: 'SAMPLE_UPDATED', source: 'merchandising' }, '*');
+          window.opener.postMessage({ type: 'SAMPLE_UPDATED', source: 'samples' }, '*');
         } catch (e) {
           // Ignore if postMessage fails
         }
-        // Navigate parent window back to sample development page (will trigger refresh)
-        window.opener.location.href = "/dashboard/erp/merchandising/sample-development";
+        // Navigate parent window back (will trigger refresh)
+        window.opener.location.href = "/dashboard/erp/samples/requests";
         window.close();
       } else {
-        // If not opened from another window, just navigate back
-        router.push("/dashboard/erp/merchandising/sample-development");
+        router.push("/dashboard/erp/samples/requests");
       }
     },
     onError: (error: any) => {
-      toast.error(`Failed to update sample: ${error.message}`);
+      toast.error(`Failed to update sample request: ${error.message}`);
     },
   });
 
@@ -310,6 +267,7 @@ export default function AddSampleRequestPage() {
 
   const handleBuyerSelect = (buyerId: string) => {
     const buyer = buyersData?.find((b: any) => b.id.toString() === buyerId);
+    setSelectedBuyerId(parseInt(buyerId));
     setFormData({ 
       ...formData, 
       buyer_id: buyerId, 
@@ -322,13 +280,11 @@ export default function AddSampleRequestPage() {
   // Helper function to format gauge for storage (add "GG" suffix)
   const formatGaugeForStorage = (gauge: string): string => {
     if (!gauge) return "";
-    // Split by comma, add GG to each number, then join
     return gauge
       .split(",")
       .map((g) => {
         const trimmed = g.trim();
         if (!trimmed) return "";
-        // If already has GG, keep it; otherwise add GG
         return trimmed.match(/GG/i) ? trimmed : `${trimmed} GG`;
       })
       .filter(Boolean)
@@ -359,7 +315,6 @@ export default function AddSampleRequestPage() {
   }, [items, itemSearch]);
 
   const handleGaugeSelect = (gauge: string) => {
-    // Store with GG format
     const formattedGauge = formatGaugeForStorage(gauge);
     setFormData({ ...formData, gauge: formattedGauge });
     setGaugeOpen(false);
@@ -369,9 +324,7 @@ export default function AddSampleRequestPage() {
   const handleAddNewGauge = () => {
     const newGauge = gaugeSearch.trim();
     if (newGauge) {
-      // Format the new gauge with GG
       const formattedGauge = formatGaugeForStorage(newGauge);
-      // Store in list without GG for display
       const displayGauge = formatGaugeForDisplay(formattedGauge);
       if (!gauges.includes(displayGauge)) {
         setGauges([...gauges, displayGauge]);
@@ -443,13 +396,13 @@ export default function AddSampleRequestPage() {
     
     setFormData({
       ...formData,
-      techpack_files: [...formData.techpack_files, ...newFiles],
+      techpack_files: [...(formData.techpack_files || []), ...newFiles],
     });
   };
   const removeTechpackFile = (index: number) => {
     setFormData({
       ...formData,
-      techpack_files: formData.techpack_files.filter((_, i) => i !== index),
+      techpack_files: (formData.techpack_files || []).filter((_, i) => i !== index),
     });
   };
   const openSpecSheetGenerator = () => {
@@ -459,37 +412,46 @@ export default function AddSampleRequestPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Prepare data for backend
+    if (!editRequestId) {
+      toast.error("Cannot create new requests here. Use Merchandising module to create sample requests.");
+      return;
+    }
+    
+    // Prepare data for backend (matching SampleRequestUpdate schema)
     const submitData: any = {
-      ...formData,
       buyer_id: parseInt(formData.buyer_id),
-      request_pcs: formData.request_pcs ? parseInt(formData.request_pcs) : null,
-      // Convert date strings to ISO format or null
+      buyer_name: formData.buyer_name,
+      sample_name: formData.sample_name,
+      item: formData.item || null,
+      gauge: formData.gauge ? formatGaugeForStorage(formData.gauge) : null,
+      ply: formData.ply ? parseInt(formData.ply) : null,
+      sample_category: formData.sample_category,
+      // Note: priority is not in SampleRequest model, it's only in Merchandiser's SamplePrimaryInfo
+      yarn_id: formData.yarn_id || null,
+      yarn_details: formData.yarn_details || null,
+      trims_ids: formData.trims_ids.length > 0 ? formData.trims_ids : null, // Backend expects List[str]
+      trims_details: formData.trims_details || null,
+      decorative_part: formData.decorative_part.length > 0 ? formData.decorative_part.join(", ") : null,
+      decorative_details: null, // Not in form, keep null
+      color_name: formData.color_ids.length > 0 && colorsData 
+        ? colorsData.filter((c: any) => formData.color_ids.includes(c.id)).map((c: any) => c.color_name).join(", ")
+        : null,
+      size_name: formData.size_ids.length > 0 && sizesData
+        ? sizesData.filter((s: any) => formData.size_ids.includes(s.id)).map((s: any) => s.size_name).join(", ")
+        : null,
       yarn_handover_date: formData.yarn_handover_date ? new Date(formData.yarn_handover_date).toISOString() : null,
       trims_handover_date: formData.trims_handover_date ? new Date(formData.trims_handover_date).toISOString() : null,
       required_date: formData.required_date ? new Date(formData.required_date).toISOString() : null,
-      // Ensure arrays are included (even if empty, backend expects arrays)
-      decorative_part: formData.decorative_part || [],
-      additional_instruction: formData.additional_instruction || [],
-      techpack_files: formData.techpack_files || [],
+      request_pcs: formData.request_pcs ? parseInt(formData.request_pcs) : null,
+      additional_instruction: formData.additional_instruction.length > 0
+        ? formData.additional_instruction.map(inst => `${inst.done ? '✓ ' : ''}${inst.instruction}`).join('\n')
+        : null,
+      // For backward compatibility, use first techpack file if exists
+      techpack_url: formData.techpack_files && formData.techpack_files.length > 0 ? formData.techpack_files[0].url : null,
+      techpack_filename: formData.techpack_files && formData.techpack_files.length > 0 ? formData.techpack_files[0].filename : null,
     };
     
-    // Set yarn_id from yarn_ids array if not set
-    if (!submitData.yarn_id && submitData.yarn_ids && submitData.yarn_ids.length > 0) {
-      submitData.yarn_id = submitData.yarn_ids[0];
-    }
-    
-    // For updates, exclude sample_id (it shouldn't change)
-    if (isEditing && editSampleId) {
-      delete submitData.sample_id;
-      updatePrimaryMutation.mutate({ id: editSampleId, data: submitData });
-    } else {
-      // Only include sample_id if it's not empty (backend will auto-generate if empty)
-      if (!formData.sample_id || formData.sample_id.trim() === "") {
-        delete submitData.sample_id;
-      }
-      createPrimaryMutation.mutate(submitData);
-    }
+    updateRequestMutation.mutate({ id: parseInt(editRequestId!), data: submitData });
   };
 
   const selectedBuyer = buyersData?.find((b: any) => b.id.toString() === formData.buyer_id);
@@ -503,7 +465,7 @@ export default function AddSampleRequestPage() {
             if (window.opener) {
               window.close();
             } else {
-              router.push("/dashboard/erp/merchandising/sample-development");
+              router.push("/dashboard/erp/samples/requests");
             }
           }}
           className="mb-4"
@@ -513,11 +475,9 @@ export default function AddSampleRequestPage() {
         </Button>
         <Card>
           <CardHeader>
-            <CardTitle>{isEditing ? "Edit Sample Request" : "Create New Sample Request"}</CardTitle>
+            <CardTitle>Edit Sample Request</CardTitle>
             <CardDescription>
-              {isEditing 
-                ? "Update the sample request details below"
-                : "Fill in the details to create a new sample request. Sample ID will be auto-generated if left empty."}
+              Update the sample request details below. Sample requests are created in the Merchandising module.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -746,10 +706,10 @@ export default function AddSampleRequestPage() {
                                 <div className="flex items-center w-full">
                                   <Check className={cn("mr-2 h-4 w-4", formData.color_ids.includes(color.id) ? "opacity-100" : "opacity-0")} />
                                   <div className="flex items-center gap-2 flex-1">
-                                    {color.hex_code && (
+                                    {color.hex_value && (
                                       <div 
                                         className="w-4 h-4 rounded border" 
-                                        style={{ backgroundColor: color.hex_code }}
+                                        style={{ backgroundColor: color.hex_value }}
                                       />
                                     )}
                                     <span className="text-sm">{color.color_name}</span>
@@ -1081,7 +1041,7 @@ export default function AddSampleRequestPage() {
                       Excel
                     </Button>
                   </div>
-                  {formData.techpack_files.length > 0 && (
+                  {formData.techpack_files && formData.techpack_files.length > 0 && (
                     <div className="space-y-2">
                       {formData.techpack_files.map((file, idx) => (
                         <div key={idx} className="flex items-center gap-2 bg-muted p-2 rounded text-sm">
@@ -1120,20 +1080,20 @@ export default function AddSampleRequestPage() {
                     if (window.opener) {
                       window.close();
                     } else {
-                      router.push("/dashboard/erp/merchandising/sample-development");
+                      router.push("/dashboard/erp/samples/requests");
                     }
                   }}
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={createPrimaryMutation.isPending}>
-                  {createPrimaryMutation.isPending || updatePrimaryMutation.isPending ? (
+                <Button type="submit" disabled={updateRequestMutation.isPending}>
+                  {updateRequestMutation.isPending ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {isEditing ? "Updating..." : "Creating..."}
+                      Updating...
                     </>
                   ) : (
-                    isEditing ? "Update Sample" : "Create Sample"
+                    "Update Sample Request"
                   )}
                 </Button>
               </div>
@@ -1144,4 +1104,3 @@ export default function AddSampleRequestPage() {
     </div>
   );
 }
-

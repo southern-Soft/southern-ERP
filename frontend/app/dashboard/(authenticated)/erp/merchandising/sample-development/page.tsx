@@ -103,6 +103,20 @@ export default function SampleDevelopmentPage() {
     console.log("Primary Error:", primaryError);
   }, [primaryInfoData, primaryLoading, primaryError]);
 
+  // Listen for messages from child windows to refresh data (bidirectional sync)
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SAMPLE_UPDATED') {
+        // Invalidate queries to refresh data from both Merchandiser and Samples
+        queryClient.invalidateQueries({ queryKey: ["merchandiser", "samplePrimary"] });
+        queryClient.invalidateQueries({ queryKey: ["samples", "requests"] });
+        toast.success("Sample data refreshed from Sample Department");
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [queryClient]);
+
   const { data: tnaData, isLoading: tnaLoading } = useQuery({
     queryKey: ["merchandiser", "sampleTna"],
     queryFn: () => api.merchandiser.sampleTna.getAll(),

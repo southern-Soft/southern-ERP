@@ -579,7 +579,18 @@ async def create_packing_good_detail(
             detail=f"Product ID '{packing_good.product_id}' already exists"
         )
     
-    db_packing_good = PackingGoodDetail(**packing_good.model_dump())
+    # Prepare data, ensuring carton dimensions are properly handled
+    packing_data = packing_good.model_dump()
+    
+    # Convert carton dimensions to float or None
+    for field in ['carton_length', 'carton_width', 'carton_height', 'carton_weight']:
+        if field in packing_data and packing_data[field] is not None:
+            try:
+                packing_data[field] = float(packing_data[field]) if packing_data[field] != '' else None
+            except (ValueError, TypeError):
+                packing_data[field] = None
+    
+    db_packing_good = PackingGoodDetail(**packing_data)
     db.add(db_packing_good)
     db.commit()
     db.refresh(db_packing_good)

@@ -75,6 +75,19 @@ export default function SampleRequestPage() {
     loadData();
   }, []);
 
+  // Listen for messages from child windows to refresh data (bidirectional sync)
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SAMPLE_UPDATED') {
+        // Refresh data when sample is updated from Merchandising
+        loadData();
+        toast.success("Sample data refreshed from Merchandising");
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   useEffect(() => {
     applyFilters();
   }, [requests, filters]);
@@ -892,7 +905,14 @@ export default function SampleRequestPage() {
                     <Button variant="ghost" size="icon" onClick={() => handleView(item)} title="View Details">
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => {
+                        window.open(`/dashboard/erp/samples/requests/add-request?edit=${item.id}`, "_blank");
+                      }}
+                      title="Edit Sample Request"
+                    >
                       <Edit className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => handleDelete(item.id)}>

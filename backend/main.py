@@ -5,8 +5,10 @@ Modular FastAPI Backend
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from core import settings, init_db, setup_logging
 import traceback
+import os
 
 # Configure logging
 logger = setup_logging()
@@ -131,3 +133,12 @@ app.include_router(merchandiser_router, prefix=f"{settings.API_V1_STR}/merchandi
 app.include_router(settings_router, prefix=f"{settings.API_V1_STR}/settings", tags=["settings"])
 app.include_router(notifications_router, prefix=f"{settings.API_V1_STR}/notifications", tags=["notifications"])
 app.include_router(workflow_router, prefix=f"{settings.API_V1_STR}", tags=["workflows"])
+
+# Mount static files for uploaded content (logos, attachments, etc.)
+# Create uploads directory if it doesn't exist
+os.makedirs("uploads", exist_ok=True)
+os.makedirs("uploads/company_logos", exist_ok=True)
+os.makedirs("uploads/workflow_attachments", exist_ok=True)
+
+# Mount static file serving under /api/v1/static to match API routing
+app.mount(f"{settings.API_V1_STR}/static", StaticFiles(directory="uploads"), name="static")

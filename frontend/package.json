@@ -4,9 +4,9 @@
   "private": true,
   "description": "Southern Apparels ERP System - Frontend",
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "dev": "next dev -H 0.0.0.0 -p ${PORT:-2222}",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p 3000",
+    "start": "next start -H 0.0.0.0 -p ${PORT:-2222}",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "test": "vitest",

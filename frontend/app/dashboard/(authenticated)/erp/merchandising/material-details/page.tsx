@@ -1113,6 +1113,7 @@ export default function MaterialDetailsPage() {
               carton_length: data.carton_length ? parseFloat(data.carton_length) : null,
               carton_width: data.carton_width ? parseFloat(data.carton_width) : null,
               carton_height: data.carton_height ? parseFloat(data.carton_height) : null,
+              carton_weight: data.carton_weight ? parseFloat(data.carton_weight) : null,
             };
             updatePackingGoodMutation.mutate({ id: editingPackingGood.product_id, data: transformedData });
           } else {
@@ -1128,6 +1129,7 @@ export default function MaterialDetailsPage() {
               carton_length: data.carton_length ? parseFloat(data.carton_length) : null,
               carton_width: data.carton_width ? parseFloat(data.carton_width) : null,
               carton_height: data.carton_height ? parseFloat(data.carton_height) : null,
+              carton_weight: data.carton_weight ? parseFloat(data.carton_weight) : null,
             };
             createPackingGoodMutation.mutate(transformedData);
           }

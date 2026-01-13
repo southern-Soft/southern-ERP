@@ -2470,6 +2470,26 @@ export const settingsService = {
       const basePath = getBasePath();
       return getAPIResponse(basePath, "/settings/company-profile", token, "PUT", JSON.stringify(data));
     },
+    uploadLogo: async (file: File, token: string) => {
+      const basePath = getBasePath();
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`${basePath}/settings/company-profile/upload-logo`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to upload logo');
+      }
+      
+      return await response.json();
+    },
   },
 
   // Branches
@@ -2813,6 +2833,10 @@ export const settingsService = {
     delete: async (id: number, token: string) => {
       const basePath = getBasePath();
       return getAPIResponse(basePath, `/settings/color-master/${id}`, token, "DELETE");
+    },
+    seedTcx: async (token: string) => {
+      const basePath = getBasePath();
+      return getAPIResponse(basePath, "/settings/color-master/seed-tcx", token, "POST");
     },
   },
 

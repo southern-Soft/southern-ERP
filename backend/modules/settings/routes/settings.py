@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
+import os
+import uuid
 from core.database import get_db_settings
 from core.logging import setup_logging
 
@@ -56,6 +59,67 @@ def get_company_profile(db: Session = Depends(get_db_settings)):
         db.commit()
         db.refresh(profile)
     return profile
+
+
+@router.post("/company-profile/upload-logo", status_code=status.HTTP_200_OK)
+async def upload_company_logo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db_settings)
+):
+    """Upload company logo (PNG, JPG)"""
+    try:
+        # Validate file type
+        allowed_extensions = {'.png', '.jpg', '.jpeg'}
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid file type. Allowed types: PNG, JPG, JPEG"
+            )
+        
+        # Create uploads directory if it doesn't exist
+        upload_dir = "uploads/company_logos"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate unique filename
+        unique_filename = f"company_logo_{uuid.uuid4()}{file_extension}"
+        file_path = os.path.join(upload_dir, unique_filename)
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # Update company profile with logo URL
+        profile = db.query(CompanyProfile).first()
+        if not profile:
+            profile = CompanyProfile(company_name="My Company")
+            db.add(profile)
+            db.commit()
+            db.refresh(profile)
+        
+        # Store relative path that can be served via static files
+        # Static mount is at /api/v1/static with directory "uploads"
+        # So files in uploads/company_logos/ are accessible at /api/v1/static/company_logos/
+        logo_url = f"/api/v1/static/company_logos/{unique_filename}"
+        profile.logo_url = logo_url
+        db.commit()
+        db.refresh(profile)
+        
+        return {
+            "message": "Logo uploaded successfully",
+            "logo_url": logo_url,
+            "filename": unique_filename
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading company logo: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload logo: {str(e)}"
+        )
 
 
 @router.put("/company-profile", response_model=CompanyProfileResponse)
@@ -1316,6 +1380,177 @@ def delete_color_master(master_id: int, db: Session = Depends(get_db_settings)):
         db.rollback()
         logger.error(f"Error deleting color master: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete color master")
+
+
+@router.post("/color-master/seed-tcx")
+def seed_tcx_colors(db: Session = Depends(get_db_settings)):
+    """
+    Seed comprehensive Pantone TCX color codes into Color Master
+    This will add all TCX colors with their codes, hex values, and map them to appropriate color families
+    """
+    try:
+        from .seed_tcx_colors import COMPREHENSIVE_TCX_COLORS
+        
+        # Get or create color families
+        family_map = {}
+        for family_name in ["RED", "PINK", "ORANGE", "YELLOW", "GREEN", "BLUE", "PURPLE", "BROWN", "NEUTRAL", "BEIGE", "BLACK", "WHITE", "GREY"]:
+            family = db.query(ColorFamily).filter(ColorFamily.color_family == family_name).first()
+            if not family:
+                # Create family if it doesn't exist
+                family = ColorFamily(
+                    color_family=family_name,
+                    color_family_code=family_name[:3],
+                    color_family_code_type="INTERNAL",
+                    is_active=True
+                )
+                db.add(family)
+                db.flush()
+            family_map[family_name] = family.id
+        
+        # Get or create base colors for each family
+        color_map = {}
+        for family_name, family_id in family_map.items():
+            # Get or create a base color for this family
+            base_color_name = family_name.title()
+            color = db.query(Color).filter(
+                Color.color == base_color_name,
+                Color.color_family_id == family_id
+            ).first()
+            
+            if not color:
+                color = Color(
+                    color=base_color_name,
+                    color_family_id=family_id,
+                    color_code=family_name[:3],
+                    color_code_type="INTERNAL",
+                    is_active=True
+                )
+                db.add(color)
+                db.flush()
+            color_map[family_name] = color.id
+        
+        inserted = 0
+        updated = 0
+        skipped = 0
+        
+        # Process each TCX color
+        for color_name, tcx_code, hex_code, family_name in COMPREHENSIVE_TCX_COLORS:
+            try:
+                family_id = family_map.get(family_name)
+                color_id = color_map.get(family_name)
+                
+                if not family_id or not color_id:
+                    logger.warning(f"Skipping {color_name} - family {family_name} not found")
+                    skipped += 1
+                    continue
+                
+                # Check if TCX color already exists
+                existing = db.query(ColorMaster).filter(
+                    ColorMaster.color_code == tcx_code,
+                    ColorMaster.color_code_type == "TCX"
+                ).first()
+                
+                if existing:
+                    # Update existing
+                    existing.color_name = color_name
+                    existing.hex_value = hex_code
+                    existing.is_active = True
+                    existing.color_id = color_id
+                    existing.color_family_id = family_id
+                    existing.remarks = f"Pantone TCX {tcx_code}"
+                    updated += 1
+                else:
+                    # Create new - use merge to handle potential duplicates
+                    try:
+                        new_master = ColorMaster(
+                            color_id=color_id,
+                            color_family_id=family_id,
+                            color_value_id=None,  # TCX colors don't have intensity values
+                            color_name=color_name,
+                            color_code_type="TCX",
+                            color_code=tcx_code,
+                            hex_value=hex_code,
+                            is_active=True,
+                            remarks=f"Pantone TCX {tcx_code}"
+                        )
+                        db.add(new_master)
+                        db.flush()  # Flush to catch integrity errors early
+                        inserted += 1
+                    except IntegrityError as e:
+                        # If duplicate, update instead
+                        db.rollback()
+                        existing = db.query(ColorMaster).filter(
+                            ColorMaster.color_code == tcx_code,
+                            ColorMaster.color_code_type == "TCX"
+                        ).first()
+                        if existing:
+                            existing.color_name = color_name
+                            existing.hex_value = hex_code
+                            existing.is_active = True
+                            existing.color_id = color_id
+                            existing.color_family_id = family_id
+                            existing.remarks = f"Pantone TCX {tcx_code}"
+                            updated += 1
+                        else:
+                            skipped += 1
+                        continue
+                
+                # Commit in batches to avoid transaction issues
+                if (inserted + updated) % 50 == 0:
+                    db.commit()
+                    
+            except IntegrityError as e:
+                # Handle unique constraint violations
+                db.rollback()
+                # Try to update the existing record
+                existing = db.query(ColorMaster).filter(
+                    ColorMaster.color_code == tcx_code,
+                    ColorMaster.color_code_type == "TCX"
+                ).first()
+                if existing:
+                    existing.color_name = color_name
+                    existing.hex_value = hex_code
+                    existing.is_active = True
+                    existing.color_id = color_id
+                    existing.color_family_id = family_id
+                    existing.remarks = f"Pantone TCX {tcx_code}"
+                    updated += 1
+                else:
+                    logger.warning(f"Failed to process TCX color {color_name} ({tcx_code}): {e}")
+                    skipped += 1
+                continue
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Failed to process TCX color {color_name} ({tcx_code}): {e}")
+                skipped += 1
+                continue
+        
+        # Final commit
+        try:
+            db.commit()
+        except IntegrityError as e:
+            db.rollback()
+            logger.error(f"Final commit failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to commit TCX colors: {str(e)}")
+        
+        # Get total count
+        total_tcx = db.query(ColorMaster).filter(
+            ColorMaster.color_code_type == "TCX",
+            ColorMaster.is_active == True
+        ).count()
+        
+        return {
+            "message": "TCX colors seeded successfully",
+            "inserted": inserted,
+            "updated": updated,
+            "skipped": skipped,
+            "total_tcx_colors": total_tcx
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error seeding TCX colors: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to seed TCX colors: {str(e)}")
 
 
 # ==================== COUNTRIES ====================

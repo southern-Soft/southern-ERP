@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Shield, Save } from "lucide-react";
+import { Shield, Save, Upload, X, Image as ImageIcon } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { settingsService } from "@/services/api";
 import { toast } from "sonner";
@@ -14,8 +14,11 @@ import { useAuth } from "@/lib/auth-context";
 
 export default function CompanyProfilePage() {
   const { user, token } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     company_name: "",
     legal_name: "",
@@ -61,11 +64,85 @@ export default function CompanyProfilePage() {
           default_currency_id: data.default_currency_id?.toString() || "",
           fiscal_year_start_month: data.fiscal_year_start_month || 1,
         });
+        // Set logo preview if logo_url exists
+        if (data.logo_url) {
+          setLogoPreview(data.logo_url);
+        }
       }
     } catch (error) {
       console.error("Error loading company profile:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error("Invalid file type. Please upload a PNG or JPG image.");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("File size too large. Please upload an image smaller than 5MB.");
+      return;
+    }
+
+    try {
+      if (!token) {
+        toast.error("Not authenticated");
+        return;
+      }
+      setUploadingLogo(true);
+
+      // Upload file first
+      const result = await settingsService.companyProfile.uploadLogo(file, token);
+      
+      // Update form data with new logo URL from server
+      setFormData({ ...formData, logo_url: result.logo_url });
+      
+      // Set preview to use the server URL (not base64)
+      setLogoPreview(result.logo_url);
+      
+      toast.success("Logo uploaded successfully");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to upload logo");
+      console.error(error);
+    } finally {
+      setUploadingLogo(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    try {
+      if (!token) {
+        toast.error("Not authenticated");
+        return;
+      }
+      // Update form data and save to database
+      const updatedData = { ...formData, logo_url: "" };
+      setFormData(updatedData);
+      setLogoPreview(null);
+      
+      // Save the change to database
+      const data = {
+        ...updatedData,
+        default_currency_id: updatedData.default_currency_id ? parseInt(updatedData.default_currency_id) : null,
+      };
+      await settingsService.companyProfile.update(data, token);
+      toast.success("Logo removed successfully");
+    } catch (error: any) {
+      toast.error("Failed to remove logo");
+      console.error(error);
     }
   };
 
@@ -164,13 +241,107 @@ export default function CompanyProfilePage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="logo_url">Logo URL</Label>
-                <Input
-                  id="logo_url"
-                  value={formData.logo_url}
-                  onChange={(e) => setFormData({ ...formData, logo_url: e.target.value })}
-                  placeholder="https://example.com/logo.png"
-                />
+                <Label htmlFor="logo">Company Logo</Label>
+                <div className="space-y-4">
+                  {/* Logo Preview */}
+                  {logoPreview && (
+                    <div className="relative inline-block">
+                      <div className="relative w-32 h-32 border-2 border-dashed border-muted-foreground/25 rounded-lg overflow-hidden bg-muted/50">
+                        <img
+                          key={logoPreview}
+                          src={(() => {
+                            let imageUrl = logoPreview;
+                            
+                            // Handle different URL formats
+                            if (logoPreview.startsWith('http://') || logoPreview.startsWith('https://')) {
+                              imageUrl = logoPreview; // External URL
+                            } else if (logoPreview.startsWith('/api/v1/static/')) {
+                              imageUrl = logoPreview; // Already has correct path
+                            } else if (logoPreview.startsWith('/static/')) {
+                              // Convert /static/ to /api/v1/static/
+                              imageUrl = logoPreview.replace('/static/', '/api/v1/static/');
+                            } else if (logoPreview.startsWith('/')) {
+                              imageUrl = logoPreview; // Absolute path
+                            } else {
+                              imageUrl = `/api/v1/static/company_logos/${logoPreview}`; // Relative path
+                            }
+                            
+                            return imageUrl;
+                          })()}
+                          alt="Company Logo"
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            const img = e.target as HTMLImageElement;
+                            console.error("Failed to load logo from:", img.src);
+                            toast.error("Failed to load logo image. Please check the URL or try uploading again.");
+                          }}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                        onClick={handleRemoveLogo}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* Upload Button */}
+                  <div className="flex items-center gap-4">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      id="logo"
+                      accept="image/png,image/jpeg,image/jpg"
+                      onChange={handleLogoUpload}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingLogo}
+                    >
+                      {uploadingLogo ? (
+                        <>
+                          <Upload className="mr-2 h-4 w-4 animate-pulse" />
+                          Uploading...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="mr-2 h-4 w-4" />
+                          {logoPreview ? "Change Logo" : "Upload Logo"}
+                        </>
+                      )}
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      PNG or JPG (max 5MB)
+                    </span>
+                  </div>
+                  
+                  {/* Logo URL Input (for manual URL entry) */}
+                  <div className="space-y-2">
+                    <Label htmlFor="logo_url" className="text-sm text-muted-foreground">
+                      Or enter logo URL manually
+                    </Label>
+                    <Input
+                      id="logo_url"
+                      value={formData.logo_url}
+                      onChange={(e) => {
+                        setFormData({ ...formData, logo_url: e.target.value });
+                        if (e.target.value) {
+                          setLogoPreview(e.target.value);
+                        } else {
+                          setLogoPreview(null);
+                        }
+                      }}
+                      placeholder="https://example.com/logo.png or /static/uploads/company_logos/logo.png"
+                    />
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -73,6 +73,8 @@ frontend/.env.local
 # AI Tools & MCP Servers
 .claude/
 mcp_memory_storage/
+.kiro/
+.cursor//
 
 # MCP Server Folders (don't push to GitHub)
 mcp-browser-test/

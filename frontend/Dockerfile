@@ -15,7 +15,8 @@ COPY . .
 RUN echo "" > .env.local
 
 # Build application (uses .env.production for NEXT_PUBLIC_* variables)
-RUN npm run build
+# Using --webpack flag to avoid Turbopack parsing issues with complex nested JSX structures
+RUN npm run build -- --webpack
 
 # Production stage
 FROM node:20-alpine AS runner
@@ -31,7 +32,9 @@ COPY --from=builder /app/.next/static ./.next/static
 
 EXPOSE 3000
 
-ENV PORT=3000
+# Port is configurable via environment variable
+# Default to 3000 (container internal), mapped to host port via docker-compose
+ENV PORT=${PORT:-3000}
 ENV HOSTNAME="0.0.0.0"
 
 CMD ["node", "server.js"]

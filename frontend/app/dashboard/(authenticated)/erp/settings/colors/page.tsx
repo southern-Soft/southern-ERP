@@ -30,12 +30,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ColorMasterTabs from "./color-master-tabs";
 import { PlusCircle, Edit, Trash2, Shield, Search, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
+import { useQueryClient } from "@tanstack/react-query";
+import { settingsService } from "@/services/api";
 import {
   useColorFamilies,
   useColors,
@@ -57,6 +60,7 @@ import {
 
 export default function ColorsPage() {
   const { user, token } = useAuth();
+  const queryClient = useQueryClient();
   
   // ============================================================================
   // TANSTACK QUERY: Data fetching with caching, auto-refetch, loading states
@@ -73,7 +77,8 @@ export default function ColorsPage() {
   
   // Pagination and filters for Color Master tab
   const [masterSearch, setMasterSearch] = useState("");
-  const [masterCodeType, setMasterCodeType] = useState("all");
+  const [masterCodeType, setMasterCodeType] = useState<string>("H&M"); // Default to H&M to match default tab
+  const [activeCodeTab, setActiveCodeTab] = useState<string>("hnm"); // Track which code type tab is active
   const [masterRowLimit, setMasterRowLimit] = useState<number | "all">(50);
   const [masterPage, setMasterPage] = useState(0);
   
@@ -91,7 +96,7 @@ export default function ColorsPage() {
   
   // Calculate effective limit and code type for Color Masters query
   const effectiveLimit = masterRowLimit === "all" ? undefined : masterRowLimit;
-  const effectiveCodeType = masterCodeType !== "all" ? masterCodeType : undefined;
+  const effectiveCodeType = masterCodeType || undefined; // Always use the selected code type
   const skip = masterPage * (typeof effectiveLimit === "number" ? effectiveLimit : 0);
   
   // Color Masters query - only enabled when tab is active
@@ -490,7 +495,8 @@ export default function ColorsPage() {
 
   const clearMasterFilters = () => {
     setMasterSearch("");
-    setMasterCodeType("all");
+    setMasterCodeType("H&M"); // Reset to default
+    setActiveCodeTab("hnm"); // Reset tab to default
     setMasterRowLimit(50);
     setMasterPage(0);
     // TanStack Query will automatically refetch when query params change
@@ -760,221 +766,133 @@ export default function ColorsPage() {
               <h3 className="text-lg font-semibold">Color Master</h3>
               <p className="text-sm text-muted-foreground">Manage colors organized by color code type</p>
             </div>
-            <Dialog open={isMasterDialogOpen} onOpenChange={(open) => { setIsMasterDialogOpen(open); if (!open) resetMasterForm(); }}>
-              <DialogTrigger asChild>
-                <Button><PlusCircle className="mr-2 h-4 w-4" />Add Master Color</Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader>
-                  <DialogTitle>{editingMaster ? "Edit" : "Add"} Color Master</DialogTitle>
-                  <DialogDescription>Complete color definitions combining family, color, and value</DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleMasterSubmit}>
-                  <div className="grid gap-4 py-4">
-                    <div className="space-y-2">
-                      <Label>Color Name *</Label>
-                      <Input value={masterFormData.color_name} onChange={(e) => setMasterFormData({ ...masterFormData, color_name: e.target.value })} placeholder="Light Navy Blue" required />
-                    </div>
-                    <div className="grid grid-cols-3 gap-4">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  if (!token) return;
+                  if (!confirm("This will add all Pantone TCX color codes to the Color Master. Continue?")) return;
+                  
+                  try {
+                    const response = await settingsService.colorMaster.seedTcx(token);
+                    toast.success(`Successfully seeded TCX colors! Inserted: ${response.inserted}, Updated: ${response.updated}, Total: ${response.total_tcx_colors}`);
+                    // Refetch color masters - invalidate all color master queries
+                    queryClient.invalidateQueries({ 
+                      predicate: (query) => {
+                        const key = query.queryKey[0] as string;
+                        return key.startsWith("settings-color-master");
+                      }
+                    });
+                  } catch (error: any) {
+                    toast.error(error?.message || "Failed to seed TCX colors");
+                  }
+                }}
+              >
+                <PlusCircle className="mr-2 h-4 w-4" />Seed TCX Colors
+              </Button>
+              <Dialog open={isMasterDialogOpen} onOpenChange={(open) => { setIsMasterDialogOpen(open); if (!open) resetMasterForm(); }}>
+                <DialogTrigger asChild>
+                  <Button><PlusCircle className="mr-2 h-4 w-4" />Add Master Color</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>{editingMaster ? "Edit" : "Add"} Color Master</DialogTitle>
+                    <DialogDescription>Complete color definitions combining family, color, and value</DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleMasterSubmit}>
+                    <div className="grid gap-4 py-4">
                       <div className="space-y-2">
-                        <Label>Family</Label>
-                        <Select value={masterFormData.color_family_id} onValueChange={(v) => setMasterFormData({ ...masterFormData, color_family_id: v })}>
-                          <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                          <SelectContent>
-                            {colorFamilies.map((f) => (<SelectItem key={f.id} value={f.id.toString()}>{f.color_family}</SelectItem>))}
-                          </SelectContent>
-                        </Select>
+                        <Label>Color Name *</Label>
+                        <Input value={masterFormData.color_name} onChange={(e) => setMasterFormData({ ...masterFormData, color_name: e.target.value })} placeholder="Light Navy Blue" required />
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label>Family</Label>
+                          <Select value={masterFormData.color_family_id} onValueChange={(v) => setMasterFormData({ ...masterFormData, color_family_id: v })}>
+                            <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                            <SelectContent>
+                              {colorFamilies.map((f) => (<SelectItem key={f.id} value={f.id.toString()}>{f.color_family}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Color</Label>
+                          <Select value={masterFormData.color_id} onValueChange={(v) => setMasterFormData({ ...masterFormData, color_id: v })}>
+                            <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                            <SelectContent>
+                              {colors.map((c) => (<SelectItem key={c.id} value={c.id.toString()}>{c.color}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Value</Label>
+                          <Select value={masterFormData.color_value_id} onValueChange={(v) => setMasterFormData({ ...masterFormData, color_value_id: v })}>
+                            <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                            <SelectContent>
+                              {colorValues.map((v) => (<SelectItem key={v.id} value={v.id.toString()}>{v.color_value_code}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Color Code Type *</Label>
+                          <Select value={masterFormData.color_code_type} onValueChange={(v) => setMasterFormData({ ...masterFormData, color_code_type: v })} required>
+                            <SelectTrigger><SelectValue placeholder="Select code type" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="H&M">H&M Color Code</SelectItem>
+                              <SelectItem value="TCX">TCX Color Code</SelectItem>
+                              <SelectItem value="General">General Color Code</SelectItem>
+                              <SelectItem value="HEX">HEX Color Code</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Color Code</Label>
+                          <Input value={masterFormData.color_code} onChange={(e) => setMasterFormData({ ...masterFormData, color_code: e.target.value })} placeholder="e.g., 32-207" />
+                        </div>
                       </div>
                       <div className="space-y-2">
-                        <Label>Color</Label>
-                        <Select value={masterFormData.color_id} onValueChange={(v) => setMasterFormData({ ...masterFormData, color_id: v })}>
-                          <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                          <SelectContent>
-                            {colors.map((c) => (<SelectItem key={c.id} value={c.id.toString()}>{c.color}</SelectItem>))}
-                          </SelectContent>
-                        </Select>
+                        <Label>Hex Value</Label>
+                        <div className="flex gap-2">
+                          <Input value={masterFormData.hex_value} onChange={(e) => setMasterFormData({ ...masterFormData, hex_value: e.target.value })} placeholder="#000080" />
+                          {masterFormData.hex_value && (
+                            <div className="w-10 h-10 rounded border" style={{ backgroundColor: masterFormData.hex_value }} />
+                          )}
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Value</Label>
-                        <Select value={masterFormData.color_value_id} onValueChange={(v) => setMasterFormData({ ...masterFormData, color_value_id: v })}>
-                          <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                          <SelectContent>
-                            {colorValues.map((v) => (<SelectItem key={v.id} value={v.id.toString()}>{v.color_value_code}</SelectItem>))}
-                          </SelectContent>
-                        </Select>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox id="master_active" checked={masterFormData.is_active} onCheckedChange={(c) => setMasterFormData({ ...masterFormData, is_active: !!c })} />
+                        <Label htmlFor="master_active">Active</Label>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Color Code Type *</Label>
-                        <Select value={masterFormData.color_code_type} onValueChange={(v) => setMasterFormData({ ...masterFormData, color_code_type: v })} required>
-                          <SelectTrigger><SelectValue placeholder="Select code type" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="H&M">H&M Color Code</SelectItem>
-                            <SelectItem value="TCX">TCX Color Code</SelectItem>
-                            <SelectItem value="General">General Color Code</SelectItem>
-                            <SelectItem value="HEX">HEX Color Code</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Color Code</Label>
-                        <Input value={masterFormData.color_code} onChange={(e) => setMasterFormData({ ...masterFormData, color_code: e.target.value })} placeholder="e.g., 32-207" />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Hex Value</Label>
-                      <div className="flex gap-2">
-                        <Input value={masterFormData.hex_value} onChange={(e) => setMasterFormData({ ...masterFormData, hex_value: e.target.value })} placeholder="#000080" />
-                        {masterFormData.hex_value && (
-                          <div className="w-10 h-10 rounded border" style={{ backgroundColor: masterFormData.hex_value }} />
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox id="master_active" checked={masterFormData.is_active} onCheckedChange={(c) => setMasterFormData({ ...masterFormData, is_active: !!c })} />
-                      <Label htmlFor="master_active">Active</Label>
-                    </div>
-                  </div>
-                  <DialogFooter><Button type="submit">{editingMaster ? "Update" : "Create"}</Button></DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
+                    <DialogFooter><Button type="submit">{editingMaster ? "Update" : "Create"}</Button></DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
 
           {/* Color Code Type Segments */}
-          <Tabs defaultValue="hnm" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="hnm">H&M Color Code</TabsTrigger>
-              <TabsTrigger value="tcx">TCX Color Code</TabsTrigger>
-              <TabsTrigger value="general">General Color Code</TabsTrigger>
-              <TabsTrigger value="hex">HEX Color Code</TabsTrigger>
-            </TabsList>
-
-            {["hnm", "tcx", "general", "hex"].map((codeType) => {
-              const codeTypeFilter = codeType === "hnm" ? "H&M" : codeType === "tcx" ? "TCX" : codeType === "general" ? "General" : "HEX";
-              
-              // Only show data for the active tab (data is loaded per tab)
-              const isActiveTab = masterCodeType === "all" || masterCodeType === codeTypeFilter;
-              if (!isActiveTab && masterCodeType !== "all") {
-                return null;
-              }
-              
-              // Filter by code type (data should already be filtered server-side, but double-check)
-              const baseFiltered = colorMasters.filter(m => m.color_code_type === codeTypeFilter);
-              
-              // Data is already filtered by search in loadColorMasters, but apply here too if needed
-              let filteredMasters = baseFiltered;
-              
-              // Apply row limit
-              const displayedMasters = masterRowLimit === "all" 
-                ? filteredMasters 
-                : filteredMasters.slice(0, masterRowLimit);
-              
-              return (
-                <TabsContent key={codeType} value={codeType} className="space-y-4">
-                  <Card className="p-4">
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <div className="flex-1 min-w-[200px]">
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder="Search colors..."
-                            value={masterSearch}
-                            onChange={(e) => setMasterSearch(e.target.value)}
-                            className="pl-9"
-                          />
-                        </div>
-                      </div>
-                      <Select
-                        value={masterRowLimit.toString()}
-                        onValueChange={(value) => setMasterRowLimit(value === "all" ? "all" : parseInt(value))}
-                      >
-                        <SelectTrigger className="w-[120px]">
-                          <SelectValue placeholder="Rows" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="10">Show 10</SelectItem>
-                          <SelectItem value="20">Show 20</SelectItem>
-                          <SelectItem value="50">Show 50</SelectItem>
-                          <SelectItem value="100">Show 100</SelectItem>
-                          <SelectItem value="all">Show All</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button variant="outline" size="icon" onClick={clearMasterFilters} title="Clear filters">
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      {masterLoading ? (
-                        "Loading..."
-                      ) : (
-                        <>
-                          Showing {displayedMasters.length} of {filteredMasters.length} filtered 
-                          {masterSearch ? " (search results)" : ` (${codeTypeFilter} colors)`}
-                        </>
-                      )}
-                    </div>
-                  </Card>
-                  
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Color Name</TableHead>
-                          <TableHead>Code</TableHead>
-                          <TableHead>Family</TableHead>
-                          <TableHead>Color</TableHead>
-                          <TableHead>Value</TableHead>
-                          <TableHead>Hex</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {masterLoading ? (
-                          <TableRow>
-                            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                              Loading colors...
-                            </TableCell>
-                          </TableRow>
-                        ) : displayedMasters.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                              {filteredMasters.length === 0 && masterSearch ? "No colors match your search" : `No ${codeTypeFilter} color codes found`}
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          displayedMasters.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell className="font-medium">{item.color_name}</TableCell>
-                              <TableCell><Badge variant="outline">{item.color_code || "-"}</Badge></TableCell>
-                              <TableCell>{getFamilyName(item.color_family_id)}</TableCell>
-                              <TableCell>{getColorName(item.color_id)}</TableCell>
-                              <TableCell>{getValueName(item.color_value_id)}</TableCell>
-                              <TableCell>
-                                {item.hex_value && (
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-6 h-6 rounded border" style={{ backgroundColor: item.hex_value }} />
-                                    <span className="text-xs">{item.hex_value}</span>
-                                  </div>
-                                )}
-                              </TableCell>
-                              <TableCell><Badge variant={item.is_active ? "default" : "secondary"}>{item.is_active ? "Active" : "Inactive"}</Badge></TableCell>
-                              <TableCell className="text-right">
-                                <Button variant="ghost" size="icon" onClick={() => handleEditMaster(item)}><Edit className="h-4 w-4" /></Button>
-                                <Button variant="ghost" size="icon" onClick={() => handleDeleteMaster(item.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </TabsContent>
-              );
-            })}
-          </Tabs>
+          <ColorMasterTabs
+            colorMasters={colorMasters}
+            masterLoading={masterLoading}
+            masterSearch={masterSearch}
+            setMasterSearch={setMasterSearch}
+            masterRowLimit={masterRowLimit}
+            setMasterRowLimit={setMasterRowLimit}
+            activeCodeTab={activeCodeTab}
+            setActiveCodeTab={setActiveCodeTab}
+            setMasterCodeType={setMasterCodeType}
+            setMasterPage={setMasterPage}
+            clearMasterFilters={clearMasterFilters}
+            getFamilyName={getFamilyName}
+            getColorName={getColorName}
+            getValueName={getValueName}
+            handleEditMaster={handleEditMaster}
+            handleDeleteMaster={handleDeleteMaster}
+            token={token}
+          />
         </TabsContent>
       </Tabs>
     </div>
