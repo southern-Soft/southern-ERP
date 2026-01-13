@@ -91,3 +91,25 @@ mcp-browser-test/screenshots/
 # MCP Node Modules (already covered by node_modules/ but being explicit)
 mcp-*/node_modules/
 mcp-*/dist/
+
+# Uploaded files (should not be in git)
+backend/uploads/
+uploads/
+*.jpg
+*.jpeg
+*.png
+!frontend/public/*.jpg
+!frontend/public/*.jpeg
+!frontend/public/*.png
+
+# Temporary documentation files
+*_STATUS.md
+*_GUIDE.md
+*_ANALYSIS.md
+*_FIX.md
+*_IMPLEMENTATION.md
+updated_log*.md
+debug-*.sh
+
+# Database diagram files
+*Diagram*.csv
