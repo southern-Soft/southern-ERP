@@ -8,7 +8,13 @@
 #   docker-compose up -d --build
 #   docker-compose down
 #   docker-compose logs -f
+#
+# IMPORTANT: Create .env file from .env.example before running!
+#   cp .env.example .env
+#   nano .env  # Edit with your values
 # ==============================================================================
+
+version: '3.8'
 
 services:
   # ============================================================================
