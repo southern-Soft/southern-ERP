@@ -37,7 +37,7 @@ class Buyer(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    buyer_type = relationship("BuyerType", back_populates="buyers")
+    buyer_type = relationship("BuyerType", back_populates="buyers", lazy="select")
     contacts = relationship("ContactPerson", back_populates="buyer", foreign_keys="ContactPerson.buyer_id")
     shipping_info = relationship("ShippingInfo", back_populates="buyer")
 
