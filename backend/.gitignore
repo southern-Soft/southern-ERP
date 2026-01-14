@@ -1,7 +1,11 @@
-# Environment (local overrides only)
+# Environment files (don't track actual .env files with secrets)
+# .env.example IS tracked (it's a template without secrets)
+.env
 .env.local
+.env.production
 .env.*.local
-# Note: .env is tracked (contains defaults for Docker)
+# Allow .env.example files (templates without secrets)
+!.env.example
 
 # Auto-generated files
 actual_openapi.json
