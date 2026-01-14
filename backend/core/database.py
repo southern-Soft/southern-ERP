@@ -140,7 +140,9 @@ def init_db():
     # This must be done before calling create_all() so SQLAlchemy knows about all tables
     try:
         # Import Clients models
-        from modules.clients.models.client import Buyer, Supplier, Contact, ShippingAddress
+        from modules.clients.models.client import (
+            BuyerType, Buyer, Supplier, ContactPerson, ShippingInfo, BankingInfo
+        )
         
         # Import Samples models
         from modules.samples.models.sample import (

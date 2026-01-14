@@ -28,8 +28,7 @@ def create_banking_info(banking_data: BankingInfoCreate, db: Session = Depends(g
 
 @router.get("/", response_model=List[BankingInfoResponse])
 def get_banking_info(
-    client_type: str = Query(None, description="Filter by client type (buyer/supplier)"),
-    client_id: int = Query(None, description="Filter by client ID"),
+    client_name: str = Query(None, description="Filter by client name"),
     skip: int = Query(default=0, ge=0, description="Number of records to skip"),
     limit: int = Query(default=10000, ge=1, le=10000, description="Max records per request"),
     db: Session = Depends(get_db_clients)
@@ -37,25 +36,29 @@ def get_banking_info(
     """Get all banking information"""
     try:
         query = db.query(BankingInfo)
-        if client_type:
-            query = query.filter(BankingInfo.client_type == client_type)
-        if client_id:
-            query = query.filter(BankingInfo.client_id == client_id)
+        if client_name:
+            query = query.filter(BankingInfo.client_name.ilike(f"%{client_name}%"))
         
         banking_info = query.order_by(BankingInfo.id.desc()).offset(skip).limit(limit).all()
         return banking_info
     except Exception as e:
-        logger.error(f"Banking info retrieval error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve banking info")
+        logger.error(f"Banking info retrieval error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve banking info: {str(e)}")
 
 
 @router.get("/{banking_id}", response_model=BankingInfoResponse)
 def get_banking_info_by_id(banking_id: int, db: Session = Depends(get_db_clients)):
     """Get specific banking information"""
-    banking = db.query(BankingInfo).filter(BankingInfo.id == banking_id).first()
-    if not banking:
-        raise HTTPException(status_code=404, detail="Banking info not found")
-    return banking
+    try:
+        banking = db.query(BankingInfo).filter(BankingInfo.id == banking_id).first()
+        if not banking:
+            raise HTTPException(status_code=404, detail="Banking info not found")
+        return banking
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching banking info {banking_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch banking info: {str(e)}")
 
 
 @router.put("/{banking_id}", response_model=BankingInfoResponse)

@@ -208,17 +208,44 @@ def get_buyers(
     db: Session = Depends(get_db_clients)
 ):
     """Get all buyers"""
-    buyers = db.query(Buyer).options(joinedload(Buyer.buyer_type)).order_by(Buyer.id.desc()).offset(skip).limit(limit).all()
-    return buyers
+    try:
+        # Try with joinedload first, fallback to simple query if relationship fails
+        try:
+            buyers = db.query(Buyer).options(joinedload(Buyer.buyer_type)).order_by(Buyer.id.desc()).offset(skip).limit(limit).all()
+        except Exception as rel_error:
+            logger.warning(f"Failed to load buyer_type relationship: {rel_error}. Loading buyers without relationship.")
+            buyers = db.query(Buyer).order_by(Buyer.id.desc()).offset(skip).limit(limit).all()
+        return buyers
+    except Exception as e:
+        logger.error(f"Error fetching buyers: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch buyers: {str(e)}"
+        )
 
 
 @router.get("/{buyer_id}", response_model=BuyerResponse)
 def get_buyer(buyer_id: int, db: Session = Depends(get_db_clients)):
     """Get a specific buyer"""
-    buyer = db.query(Buyer).options(joinedload(Buyer.buyer_type)).filter(Buyer.id == buyer_id).first()
-    if not buyer:
-        raise HTTPException(status_code=404, detail="Buyer not found")
-    return buyer
+    try:
+        # Try with joinedload first, fallback to simple query if relationship fails
+        try:
+            buyer = db.query(Buyer).options(joinedload(Buyer.buyer_type)).filter(Buyer.id == buyer_id).first()
+        except Exception as rel_error:
+            logger.warning(f"Failed to load buyer_type relationship: {rel_error}. Loading buyer without relationship.")
+            buyer = db.query(Buyer).filter(Buyer.id == buyer_id).first()
+        
+        if not buyer:
+            raise HTTPException(status_code=404, detail="Buyer not found")
+        return buyer
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching buyer {buyer_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch buyer: {str(e)}"
+        )
 
 
 @router.put("/{buyer_id}", response_model=BuyerResponse)
