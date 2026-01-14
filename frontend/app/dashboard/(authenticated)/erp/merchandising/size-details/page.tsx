@@ -36,6 +36,7 @@ import { Plus, Edit, Trash2, Loader2, Shirt, User, Users, Sparkles } from "lucid
 import { api, sizeChartService } from "@/services/api";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/lib/auth-context";
 
 // Measurement field definitions for each garment type
 const MEASUREMENT_FIELDS = {
@@ -89,6 +90,7 @@ const MEASUREMENT_FIELDS = {
 const SIZE_NAMES = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL"];
 
 export default function SizeDetailsNewPage() {
+  const { token } = useAuth();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingSize, setEditingSize] = useState<any>(null);
@@ -124,30 +126,78 @@ export default function SizeDetailsNewPage() {
   });
 
   // Filter by gender client-side
-  const filteredSizes = sizesData.filter((s: any) => 
-    !s.gender || s.gender === selectedGender || s.gender === "Unisex"
-  );
+  const filteredSizes = sizesData.filter((s: any) => {
+    if (!s.gender || s.gender === "Unisex") return true;
+    return s.gender === selectedGender;
+  });
 
   const [formData, setFormData] = useState<any>({
     size_id: "",
     size_name: "",
     gender: "Male",
+    remarks: "",
     // Dynamic measurement fields will be added based on product type
   });
+  
+  // Reset form when product type changes
+  useEffect(() => {
+    if (selectedProductType && !editingSize) {
+      const selectedType = productTypes.find((pt: any) => pt.id === selectedProductType);
+      const fields = MEASUREMENT_FIELDS[selectedType?.type_name as keyof typeof MEASUREMENT_FIELDS] || [];
+      const resetData: any = {
+        size_id: "",
+        size_name: "",
+        gender: selectedGender,
+        remarks: "",
+      };
+      fields.forEach(field => {
+        resetData[field.key] = "";
+      });
+      setFormData(resetData);
+    }
+  }, [selectedProductType, selectedGender, productTypes, editingSize]);
 
   const resetForm = () => {
-    setFormData({
+    // Reset all form fields including measurement fields
+    const resetData: any = {
       size_id: "",
       size_name: "",
       gender: selectedGender,
-    });
+      remarks: "",
+    };
+    
+    // Reset all measurement fields based on current product type
+    if (selectedProductType) {
+      const selectedType = productTypes.find((pt: any) => pt.id === selectedProductType);
+      const fields = MEASUREMENT_FIELDS[selectedType?.type_name as keyof typeof MEASUREMENT_FIELDS] || [];
+      fields.forEach(field => {
+        resetData[field.key] = "";
+      });
+    }
+    
+    setFormData(resetData);
     setEditingSize(null);
     setDialogOpen(false);
   };
 
   const handleEdit = (size: any) => {
     setEditingSize(size);
-    setFormData(size);
+    // Load measurements from the measurements object
+    const formDataWithMeasurements: any = {
+      size_id: size.auto_generated_id || "",
+      size_name: size.size_name,
+      gender: size.gender || selectedGender,
+      remarks: size.remarks || "",
+    };
+    
+    // Load measurements from the measurements object
+    if (size.measurements && typeof size.measurements === 'object') {
+      Object.keys(size.measurements).forEach(key => {
+        formDataWithMeasurements[key] = size.measurements[key];
+      });
+    }
+    
+    setFormData(formDataWithMeasurements);
     setDialogOpen(true);
   };
 
@@ -158,14 +208,30 @@ export default function SizeDetailsNewPage() {
     }
 
     try {
+      if (!token) {
+        toast.error("Authentication required");
+        return;
+      }
+      
       const response = await fetch(`/api/v1/size-charts/generate-id?profile_id=${currentProfileId}&gender=${selectedGender}&product_type_id=${selectedProductType}`, {
         method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
       });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to generate ID");
+      }
+      
       const data = await response.json();
       setFormData({ ...formData, size_id: data.size_id });
       toast.success("ID generated successfully");
-    } catch (error) {
-      toast.error("Failed to generate ID");
+    } catch (error: any) {
+      console.error("Generate ID error:", error);
+      toast.error(error?.message || "Failed to generate ID");
     }
   };
 
@@ -177,52 +243,71 @@ export default function SizeDetailsNewPage() {
       return;
     }
 
+    if (!formData.size_name) {
+      toast.error("Please select a size name");
+      return;
+    }
+
     const selectedType = productTypes.find((pt: any) => pt.id === selectedProductType);
     const fields = MEASUREMENT_FIELDS[selectedType?.type_name as keyof typeof MEASUREMENT_FIELDS] || [];
 
-    // Build measurements object with only relevant fields
+    // Build measurements object with only relevant fields (keep original field names)
     const measurements: any = {};
     fields.forEach(field => {
-      if (formData[field.key]) {
-        measurements[field.key] = parseFloat(formData[field.key]) || 0;
+      const value = formData[field.key];
+      if (value !== undefined && value !== null && value !== "") {
+        measurements[field.key] = parseFloat(value) || 0;
       }
     });
 
-    const payload = {
-      size_id: formData.size_id,
-      size_name: formData.size_name,
+    // Get size order from SIZE_NAMES array
+    const sizeOrder = SIZE_NAMES.indexOf(formData.size_name);
+    if (sizeOrder === -1) {
+      toast.error("Invalid size name");
+      return;
+    }
+
+    // Build payload for samples module (size_chart_master table)
+    const payload: any = {
       profile_id: currentProfileId,
       product_type_id: selectedProductType,
+      size_name: formData.size_name,
+      size_order: sizeOrder,
+      measurements: measurements,
       gender: selectedGender,
-      uom: selectedUnit,
-      measurements,
-      remarks: formData.remarks || "",
     };
+    
+    // Include auto-generated ID if it was generated
+    if (formData.size_id) {
+      payload.auto_generated_id = formData.size_id;
+    }
 
     try {
       if (editingSize) {
-        await api.merchandiser.sizeChart.update(editingSize.size_id, payload);
+        await sizeChartService.update(editingSize.id, payload);
         toast.success("Size chart updated successfully");
       } else {
-        await api.merchandiser.sizeChart.create(payload);
+        await sizeChartService.create(payload);
         toast.success("Size chart created successfully");
       }
       queryClient.invalidateQueries({ queryKey: ["sizeChart"] });
       resetForm();
     } catch (error: any) {
-      toast.error(error?.message || "Failed to save size chart");
+      console.error("Size chart save error:", error);
+      toast.error(error?.detail || error?.message || "Failed to save size chart");
     }
   };
 
-  const handleDelete = async (sizeId: string) => {
+  const handleDelete = async (sizeId: number) => {
     if (!confirm("Are you sure you want to delete this size chart?")) return;
 
     try {
-      await api.merchandiser.sizeChart.delete(sizeId);
+      await sizeChartService.delete(sizeId);
       toast.success("Size chart deleted successfully");
       queryClient.invalidateQueries({ queryKey: ["sizeChart"] });
-    } catch (error) {
-      toast.error("Failed to delete size chart");
+    } catch (error: any) {
+      console.error("Delete error:", error);
+      toast.error(error?.detail || error?.message || "Failed to delete size chart");
     }
   };
 
@@ -292,9 +377,17 @@ export default function SizeDetailsNewPage() {
                             Define size measurements for different garment types
                           </CardDescription>
                         </div>
-                        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                        <Dialog open={dialogOpen} onOpenChange={(open) => {
+                          setDialogOpen(open);
+                          if (!open) {
+                            resetForm();
+                          }
+                        }}>
                           <DialogTrigger asChild>
-                            <Button onClick={() => resetForm()}>
+                            <Button onClick={() => {
+                              resetForm();
+                              setDialogOpen(true);
+                            }}>
                               <Plus className="mr-2 h-4 w-4" />
                               New Size Chart
                             </Button>
@@ -316,7 +409,26 @@ export default function SizeDetailsNewPage() {
                                   <Label>Product Type *</Label>
                                   <Select
                                     value={selectedProductType?.toString() || ""}
-                                    onValueChange={(value) => setSelectedProductType(parseInt(value))}
+                                    onValueChange={(value) => {
+                                      setSelectedProductType(parseInt(value));
+                                      // Reset measurement fields when product type changes
+                                      if (!editingSize) {
+                                        const newType = productTypes.find((pt: any) => pt.id === parseInt(value));
+                                        const newFields = MEASUREMENT_FIELDS[newType?.type_name as keyof typeof MEASUREMENT_FIELDS] || [];
+                                        const updatedFormData: any = { ...formData };
+                                        // Clear old measurement fields
+                                        Object.keys(updatedFormData).forEach(key => {
+                                          if (key !== 'size_id' && key !== 'size_name' && key !== 'gender' && key !== 'remarks') {
+                                            delete updatedFormData[key];
+                                          }
+                                        });
+                                        // Initialize new measurement fields
+                                        newFields.forEach(field => {
+                                          updatedFormData[field.key] = "";
+                                        });
+                                        setFormData(updatedFormData);
+                                      }
+                                    }}
                                   >
                                     <SelectTrigger>
                                       <SelectValue placeholder="Select type" />
@@ -351,23 +463,28 @@ export default function SizeDetailsNewPage() {
                                 </div>
 
                                 <div className="space-y-2">
-                                  <Label>Size ID</Label>
+                                  <Label>Size ID {!editingSize && "(Auto-generated)"}</Label>
                                   <div className="flex gap-2">
                                     <Input
                                       value={formData.size_id || ""}
                                       onChange={(e) => setFormData({ ...formData, size_id: e.target.value })}
                                       placeholder="SC-HM-M-SW-001"
                                       className="flex-1"
+                                      readOnly={!!editingSize}
+                                      disabled={!!editingSize}
                                     />
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="icon"
-                                      onClick={generateAutoId}
-                                      title="Auto-generate ID"
-                                    >
-                                      <Sparkles className="h-4 w-4" />
-                                    </Button>
+                                    {!editingSize && (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={generateAutoId}
+                                        title="Auto-generate ID"
+                                        disabled={!currentProfileId || !selectedProductType}
+                                      >
+                                        <Sparkles className="h-4 w-4" />
+                                      </Button>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -429,10 +546,13 @@ export default function SizeDetailsNewPage() {
                               </div>
 
                               <DialogFooter>
-                                <Button type="button" variant="outline" onClick={resetForm}>
+                                <Button type="button" variant="outline" onClick={() => {
+                                  resetForm();
+                                  setDialogOpen(false);
+                                }}>
                                   Cancel
                                 </Button>
-                                <Button type="submit">
+                                <Button type="submit" disabled={!selectedProductType || !formData.size_name}>
                                   {editingSize ? "Update" : "Create"} Size Chart
                                 </Button>
                               </DialogFooter>
@@ -504,7 +624,10 @@ export default function SizeDetailsNewPage() {
                             <br />
                             <Button
                               variant="link"
-                              onClick={() => setDialogOpen(true)}
+                              onClick={() => {
+                                resetForm();
+                                setDialogOpen(true);
+                              }}
                               className="mt-2"
                             >
                               Create your first size chart
@@ -529,28 +652,38 @@ export default function SizeDetailsNewPage() {
                               <TableBody>
                                 {filteredSizes.map((size: any) => (
                                   <TableRow key={size.id}>
-                                    <TableCell className="font-mono">{size.auto_generated_id || size.size_id}</TableCell>
+                                    <TableCell className="font-mono">{size.auto_generated_id || `SC-${size.profile_id}-${size.product_type_id}-${size.size_name}`}</TableCell>
                                     <TableCell><Badge>{size.size_name}</Badge></TableCell>
                                     <TableCell>
                                       <Badge variant="outline">{size.gender || "Unisex"}</Badge>
                                     </TableCell>
-                                    {currentFields.slice(0, 4).map((field: any) => (
-                                      <TableCell key={field.key}>
-                                        {size[field.key] || "-"}
-                                      </TableCell>
-                                    ))}
+                                    {currentFields.slice(0, 4).map((field: any) => {
+                                      // Get measurement value from measurements object
+                                      const measurementValue = size.measurements && typeof size.measurements === 'object' 
+                                        ? size.measurements[field.key] 
+                                        : null;
+                                      return (
+                                        <TableCell key={field.key}>
+                                          {measurementValue !== null && measurementValue !== undefined 
+                                            ? `${measurementValue} ${selectedUnit}` 
+                                            : "-"}
+                                        </TableCell>
+                                      );
+                                    })}
                                     <TableCell className="text-right">
                                       <Button
                                         variant="ghost"
                                         size="icon"
                                         onClick={() => handleEdit(size)}
+                                        title="Edit"
                                       >
                                         <Edit className="h-4 w-4" />
                                       </Button>
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        onClick={() => handleDelete(size.size_id)}
+                                        onClick={() => handleDelete(size.id)}
+                                        title="Delete"
                                       >
                                         <Trash2 className="h-4 w-4 text-destructive" />
                                       </Button>

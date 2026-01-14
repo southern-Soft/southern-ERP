@@ -73,7 +73,7 @@ const nextConfig: NextConfig = {
 
       // Fallback rewrites (when no file matches)
       fallback: [
-        // API Masking - proxies /api/v1/* to backend
+        // API Masking - proxies /api/v1/* to backend (except static files handled above)
         // This hides the actual backend URL from client-side code
         {
           source: "/api/v1/:path*",

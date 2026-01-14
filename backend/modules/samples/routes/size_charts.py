@@ -9,7 +9,9 @@ from sqlalchemy import text
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from core.database import get_db_samples
+from core.services.buyer_service import buyer_service
 import json
+import re
 
 router = APIRouter()
 
@@ -39,6 +41,8 @@ class SizeChartResponse(BaseModel):
     size_order: int
     measurements: Dict[str, Any]
     is_active: bool
+    gender: Optional[str] = None
+    auto_generated_id: Optional[str] = None
     profile_name: Optional[str] = None
     product_type_name: Optional[str] = None
 
@@ -49,6 +53,8 @@ class SizeChartCreate(BaseModel):
     size_name: str
     size_order: int
     measurements: Dict[str, Any]
+    gender: Optional[str] = "Unisex"
+    auto_generated_id: Optional[str] = None
 
 
 @router.post("/admin/enhance-schema")
@@ -90,8 +96,10 @@ async def enhance_size_chart_schema(db: Session = Depends(get_db_samples)):
                     ADD COLUMN IF NOT EXISTS {column} DECIMAL(10, 2);
                 """))
                 added_columns.append(column)
-            except:
-                pass  # Column might already exist
+            except Exception as e:
+                # Column might already exist or other database error
+                logger.debug(f"Column {column} might already exist or error: {e}")
+                pass
         
         db.commit()
         
@@ -172,50 +180,76 @@ async def generate_size_chart_id(
     product_type_id: int,
     db: Session = Depends(get_db_samples)
 ):
-    """Generate auto-ID for size chart (format: SC-PROFILE-GENDER-TYPE-###)"""
+    """Generate auto-ID for size chart (format: S_{Buyer_name}_{producttype_3_words}_{counter})"""
     try:
-        # Get profile code
-        profile_query = text("SELECT profile_code FROM size_chart_profiles WHERE id = :id")
+        # Get profile with buyer_id
+        profile_query = text("SELECT profile_name, buyer_id FROM size_chart_profiles WHERE id = :id")
         profile_row = db.execute(profile_query, {"id": profile_id}).fetchone()
         
         if not profile_row:
             raise HTTPException(status_code=404, detail="Profile not found")
         
-        profile_code = profile_row[0]
+        profile_name, buyer_id = profile_row
         
-        # Get product type code  
-        type_query = text("SELECT type_code FROM product_types WHERE id = :id")
+        # Get buyer name from clients database if buyer_id exists, otherwise use profile_name
+        buyer_name = None
+        if buyer_id:
+            buyer_name = buyer_service.get_buyer_name(buyer_id)
+        
+        # Use buyer_name if available, otherwise use profile_name
+        buyer_name_clean = (buyer_name or profile_name).upper()
+        # Clean buyer name: remove special chars, keep only alphanumeric and spaces, then join
+        buyer_name_clean = re.sub(r'[^A-Z0-9\s]', '', buyer_name_clean).strip()
+        buyer_name_clean = buyer_name_clean.replace(' ', '_')  # Replace spaces with underscores
+        
+        # Get product type name (not code)
+        type_query = text("SELECT type_name FROM product_types WHERE id = :id")
         type_row = db.execute(type_query, {"id": product_type_id}).fetchone()
         
         if not type_row:
             raise HTTPException(status_code=404, detail="Product type not found")
         
-        type_code = type_row[0]
+        type_name = type_row[0]
+        # Get first 3 words from product type name
+        words = type_name.upper().split()[:3]
+        product_type_3_words = '_'.join(words) if words else type_name.upper().replace(' ', '_')
+        # Clean: remove special chars, keep only alphanumeric and underscores
+        product_type_3_words = re.sub(r'[^A-Z0-9_]', '', product_type_3_words)
         
-        # Gender code
-        gender_code = "M" if gender.lower() == "male" else ("F" if gender.lower() == "female" else "U")
-        
-        # Get counter (next number in sequence)
+        # Get counter - must be unique across ALL size charts (not filtered by profile/product_type/gender)
+        # Find the highest counter for this buyer_name + product_type combination
         counter_query = text("""
-            SELECT COUNT(*) FROM size_chart_master 
-            WHERE size_chart_profile_id = :profile_id 
-              AND product_type_id = :product_type_id 
-              AND gender = :gender
+            SELECT MAX(
+                CAST(
+                    SUBSTRING(
+                        auto_generated_id 
+                        FROM '_(\\d+)$'
+                    ) AS INTEGER
+                )
+            )
+            FROM size_chart_master 
+            WHERE auto_generated_id LIKE :pattern
         """)
-        count = db.execute(counter_query, {
-            "profile_id": profile_id,
-            "product_type_id": product_type_id,
-            "gender": gender
-        }).scalar()
         
-        counter = (count or 0) + 1
-        auto_id = f"SC-{profile_code}-{gender_code}-{type_code}-{str(counter).zfill(3)}"
+        # Pattern: S_{buyer_name}_{product_type}_%
+        pattern = f"S_{buyer_name_clean}_{product_type_3_words}_%"
+        max_counter = db.execute(counter_query, {"pattern": pattern}).scalar()
+        
+        # If no existing records, start at 1, otherwise increment
+        counter = (max_counter or 0) + 1
+        
+        # Format: S_{Buyer_name}_{producttype_3_words}_{counter}
+        auto_id = f"S_{buyer_name_clean}_{product_type_3_words}_{str(counter).zfill(4)}"
         
         return {"size_id": auto_id, "counter": counter}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ID generation failed: {str(e)}")
+        import traceback
+        error_detail = f"ID generation failed: {str(e)}"
+        print(f"ERROR in generate_size_chart_id: {error_detail}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @router.get("/product-types", response_model=List[ProductTypeResponse])
@@ -305,7 +339,7 @@ async def get_size_charts(
     try:
         query_str = """
             SELECT sc.id, sc.profile_id, sc.product_type_id, sc.size_name, 
-                   sc.size_order, sc.measurements, sc.is_active,
+                   sc.size_order, sc.measurements, sc.gender, sc.auto_generated_id, sc.is_active,
                    p.profile_name, pt.type_name
             FROM size_chart_master sc
             LEFT JOIN size_chart_profiles p ON sc.profile_id = p.id
@@ -338,9 +372,11 @@ async def get_size_charts(
                 "size_name": row[3],
                 "size_order": row[4],
                 "measurements": measurements,
-                "is_active": row[6],
-                "profile_name": row[7],
-                "product_type_name": row[8]
+                "gender": row[6] if len(row) > 6 else None,
+                "auto_generated_id": row[7] if len(row) > 7 else None,
+                "is_active": row[8] if len(row) > 8 else row[6],
+                "profile_name": row[9] if len(row) > 9 else (row[7] if len(row) > 7 else None),
+                "product_type_name": row[10] if len(row) > 10 else (row[8] if len(row) > 8 else None)
             })
         
         return charts
@@ -371,11 +407,70 @@ async def create_size_chart(
         if existing:
             raise HTTPException(status_code=400, detail="Size chart entry already exists")
         
+        # Generate auto ID if not provided (format: S_{Buyer_name}_{producttype_3_words}_{counter})
+        auto_id = None
+        if hasattr(size_chart, 'auto_generated_id') and size_chart.auto_generated_id:
+            auto_id = size_chart.auto_generated_id
+        else:
+            # Get profile with buyer_id
+            profile_query = text("SELECT profile_name, buyer_id FROM size_chart_profiles WHERE id = :id")
+            profile_row = db.execute(profile_query, {"id": size_chart.profile_id}).fetchone()
+            
+            if not profile_row:
+                raise HTTPException(status_code=404, detail="Profile not found")
+            
+            profile_name, buyer_id = profile_row
+            
+            # Get buyer name from clients database if buyer_id exists
+            buyer_name = None
+            if buyer_id:
+                buyer_name = buyer_service.get_buyer_name(buyer_id)
+            
+            # Use buyer_name if available, otherwise use profile_name
+            buyer_name_clean = (buyer_name or profile_name).upper()
+            buyer_name_clean = re.sub(r'[^A-Z0-9\s]', '', buyer_name_clean).strip()
+            buyer_name_clean = buyer_name_clean.replace(' ', '_')
+            
+            # Get product type name
+            type_query = text("SELECT type_name FROM product_types WHERE id = :id")
+            type_row = db.execute(type_query, {"id": size_chart.product_type_id}).fetchone()
+            
+            if not type_row:
+                raise HTTPException(status_code=404, detail="Product type not found")
+            
+            type_name = type_row[0]
+            # Get first 3 words from product type name
+            words = type_name.upper().split()[:3]
+            product_type_3_words = '_'.join(words) if words else type_name.upper().replace(' ', '_')
+            product_type_3_words = re.sub(r'[^A-Z0-9_]', '', product_type_3_words)
+            
+            # Get counter - unique across all size charts with same buyer_name + product_type
+            counter_query = text("""
+                SELECT MAX(
+                    CAST(
+                        SUBSTRING(
+                            auto_generated_id 
+                            FROM '_(\\d+)$'
+                        ) AS INTEGER
+                    )
+                )
+                FROM size_chart_master 
+                WHERE auto_generated_id LIKE :pattern
+            """)
+            
+            pattern = f"S_{buyer_name_clean}_{product_type_3_words}_%"
+            max_counter = db.execute(counter_query, {"pattern": pattern}).scalar()
+            counter = (max_counter or 0) + 1
+            
+            auto_id = f"S_{buyer_name_clean}_{product_type_3_words}_{str(counter).zfill(4)}"
+        
+        gender_val = getattr(size_chart, 'gender', 'Unisex')
+        
         query = text("""
             INSERT INTO size_chart_master 
-            (profile_id, product_type_id, size_name, size_order, measurements, is_active)
-            VALUES (:profile_id, :product_type_id, :size_name, :size_order, :measurements, TRUE)
-            RETURNING id, profile_id, product_type_id, size_name, size_order, measurements, is_active
+            (profile_id, product_type_id, size_name, size_order, measurements, gender, auto_generated_id, is_active)
+            VALUES (:profile_id, :product_type_id, :size_name, :size_order, :measurements, :gender, :auto_generated_id, TRUE)
+            RETURNING id, profile_id, product_type_id, size_name, size_order, measurements, gender, auto_generated_id, is_active
         """)
         
         result = db.execute(query, {
@@ -383,19 +478,25 @@ async def create_size_chart(
             "product_type_id": size_chart.product_type_id,
             "size_name": size_chart.size_name,
             "size_order": size_chart.size_order,
-            "measurements": json.dumps(size_chart.measurements)
+            "measurements": json.dumps(size_chart.measurements),
+            "gender": gender_val,
+            "auto_generated_id": auto_id
         })
         db.commit()
         
         row = result.fetchone()
+        # Handle measurements - PostgreSQL JSONB returns as dict, not string
+        measurements = row[5] if isinstance(row[5], dict) else (json.loads(row[5]) if row[5] else {})
         return {
             "id": row[0],
             "profile_id": row[1],
             "product_type_id": row[2],
             "size_name": row[3],
             "size_order": row[4],
-            "measurements": json.loads(row[5]) if row[5] else {},
-            "is_active": row[6]
+            "measurements": measurements,
+            "gender": row[6] if len(row) > 6 else None,
+            "auto_generated_id": row[7] if len(row) > 7 else None,
+            "is_active": row[8] if len(row) > 8 else row[6]
         }
     except HTTPException:
         raise
@@ -412,6 +513,8 @@ async def update_size_chart(
 ):
     """Update an existing size chart"""
     try:
+        gender_val = getattr(size_chart, 'gender', 'Unisex')
+        
         query = text("""
             UPDATE size_chart_master
             SET profile_id = :profile_id,
@@ -419,9 +522,10 @@ async def update_size_chart(
                 size_name = :size_name,
                 size_order = :size_order,
                 measurements = :measurements,
+                gender = :gender,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = :size_chart_id
-            RETURNING id, profile_id, product_type_id, size_name, size_order, measurements, is_active
+            RETURNING id, profile_id, product_type_id, size_name, size_order, measurements, gender, auto_generated_id, is_active
         """)
         
         result = db.execute(query, {
@@ -430,7 +534,8 @@ async def update_size_chart(
             "product_type_id": size_chart.product_type_id,
             "size_name": size_chart.size_name,
             "size_order": size_chart.size_order,
-            "measurements": json.dumps(size_chart.measurements)
+            "measurements": json.dumps(size_chart.measurements),
+            "gender": gender_val
         })
         db.commit()
         
@@ -444,8 +549,10 @@ async def update_size_chart(
             "product_type_id": row[2],
             "size_name": row[3],
             "size_order": row[4],
-            "measurements": json.loads(row[5]) if row[5] else {},
-            "is_active": row[6]
+            "measurements": row[5] if isinstance(row[5], dict) else (json.loads(row[5]) if row[5] else {}),
+            "gender": row[6] if len(row) > 6 else None,
+            "auto_generated_id": row[7] if len(row) > 7 else None,
+            "is_active": row[8] if len(row) > 8 else row[6]
         }
     except HTTPException:
         raise

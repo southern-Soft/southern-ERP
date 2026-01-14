@@ -221,12 +221,14 @@ class SamplePrimaryInfo(Base):
     # Decorative parts (multiple)
     decorative_part = Column(JSON, nullable=True)  # DECORATIVE PART (Array of strings: Embroidery/Print, etc.)
     
-    # Color information
-    color_id = Column(String, nullable=True)  # COLOR ID
+    # Color information (can be multiple)
+    color_ids = Column(JSON, nullable=True)  # COLOR IDs (Multiple) - Array of color IDs
+    color_id = Column(String, nullable=True)  # COLOR ID (Single - first one from array for sync)
     color_name = Column(String, nullable=True)  # COLOR NAME
     
-    # Size information
-    size_id = Column(String, nullable=True)  # SIZE ID
+    # Size information (can be multiple)
+    size_ids = Column(JSON, nullable=True)  # SIZE IDs (Multiple) - Array of size IDs
+    size_id = Column(String, nullable=True)  # SIZE ID (Single - first one from array for sync)
     size_name = Column(String, nullable=True)  # SIZE NAME
     
     # Dates

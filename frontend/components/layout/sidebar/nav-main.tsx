@@ -117,7 +117,7 @@ export const navItems: NavGroup[] = [
             icon: ShoppingBagIcon
           },
           {
-            title: "Sample Required Material",
+            title: "Add Sample Material",
             href: "/dashboard/erp/samples/required-materials",
             icon: BoxIcon
           },

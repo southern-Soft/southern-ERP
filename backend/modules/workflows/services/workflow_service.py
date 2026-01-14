@@ -5,7 +5,12 @@ Workflow service layer for business logic
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
+
+# Helper function to get current UTC time (replaces deprecated utc_now())
+def utc_now() -> datetime:
+    """Get current UTC time as timezone-aware datetime"""
+    return datetime.now(timezone.utc)
 
 from ..models.workflow import (
     SampleWorkflow, WorkflowCard, CardStatusHistory,
@@ -159,7 +164,7 @@ class WorkflowService:
         if update_data.workflow_status:
             workflow.workflow_status = update_data.workflow_status.value
             if update_data.workflow_status.value == 'completed':
-                workflow.completed_at = datetime.utcnow()
+                workflow.completed_at = utc_now()
         
         if update_data.priority:
             workflow.priority = update_data.priority.value
@@ -167,7 +172,7 @@ class WorkflowService:
         if update_data.due_date is not None:
             workflow.due_date = update_data.due_date
         
-        workflow.updated_at = datetime.utcnow()
+        workflow.updated_at = utc_now()
         
         self.db.commit()
         self.db.refresh(workflow)
@@ -211,7 +216,7 @@ class WorkflowService:
         # Update card
         card.card_status = status_data.status.value
         if status_data.status.value == 'completed':
-            card.completed_at = datetime.utcnow()
+            card.completed_at = utc_now()
             # Auto-activate next stage when current stage is completed (Requirements 2.3, 5.2)
             self._activate_next_stage(card.workflow_id, card.stage_order)
         elif status_data.status.value == 'blocked':
@@ -221,7 +226,7 @@ class WorkflowService:
         else:
             card.blocked_reason = None
         
-        card.updated_at = datetime.utcnow()
+        card.updated_at = utc_now()
         
         # Create status history record
         history = CardStatusHistory(
@@ -287,7 +292,7 @@ class WorkflowService:
 
         previous_assignee = card.assigned_to
         card.assigned_to = assignee_data.assignee
-        card.updated_at = datetime.utcnow()
+        card.updated_at = utc_now()
 
         self.db.commit()
         self.db.refresh(card)
@@ -389,7 +394,7 @@ class WorkflowService:
             # Only activate if all previous stages are completed
             if all(card.card_status == 'completed' for card in previous_cards):
                 next_card.card_status = 'pending'
-                next_card.updated_at = datetime.utcnow()
+                next_card.updated_at = utc_now()
                 
                 # Create status history for auto-activation
                 history = CardStatusHistory(
@@ -414,8 +419,8 @@ class WorkflowService:
             
             if workflow and workflow.workflow_status != 'completed':
                 workflow.workflow_status = 'completed'
-                workflow.completed_at = datetime.utcnow()
-                workflow.updated_at = datetime.utcnow()
+                workflow.completed_at = utc_now()
+                workflow.updated_at = utc_now()
                 
                 # Send completion notification (Requirements 8.5)
                 try:
@@ -479,7 +484,7 @@ class WorkflowService:
             
             for card in subsequent_cards:
                 card.card_status = 'ready'
-                card.updated_at = datetime.utcnow()
+                card.updated_at = utc_now()
                 
                 # Create status history for blocking prevention
                 history = CardStatusHistory(
@@ -544,7 +549,7 @@ class WorkflowService:
                     else:
                         sample_request.current_status = 'Pending'
 
-            sample_request.updated_at = datetime.utcnow()
+            sample_request.updated_at = utc_now()
 
         except Exception as e:
             # Log error but don't fail the workflow update
@@ -585,7 +590,7 @@ class WorkflowService:
         overdue_workflows = self.db.query(SampleWorkflow).filter(
             and_(
                 SampleWorkflow.workflow_status == 'active',
-                SampleWorkflow.due_date < datetime.utcnow()
+                SampleWorkflow.due_date < utc_now()
             )
         ).count()
 
@@ -617,7 +622,7 @@ class WorkflowService:
         avg_completion_days = round(completed_with_time or 0, 1)
 
         # Recent activity (workflows created in last 7 days)
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        seven_days_ago = utc_now() - timedelta(days=7)
         recent_workflows = self.db.query(SampleWorkflow).filter(
             SampleWorkflow.created_at >= seven_days_ago
         ).count()

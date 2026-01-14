@@ -272,8 +272,15 @@ export default function CompanyProfilePage() {
                           className="w-full h-full object-contain"
                           onError={(e) => {
                             const img = e.target as HTMLImageElement;
-                            console.error("Failed to load logo from:", img.src);
-                            toast.error("Failed to load logo image. Please check the URL or try uploading again.");
+                            console.error("Failed to load logo");
+                            console.error("Logo preview URL:", logoPreview);
+                            console.error("Attempted image src:", img.src);
+                            console.error("Full URL:", window.location.origin + img.src);
+                            // Don't show toast on every error - might be temporary network issue
+                            // toast.error("Failed to load logo image. Please check the URL or try uploading again.");
+                          }}
+                          onLoad={() => {
+                            console.log("Logo loaded successfully from:", logoPreview);
                           }}
                         />
                       </div>

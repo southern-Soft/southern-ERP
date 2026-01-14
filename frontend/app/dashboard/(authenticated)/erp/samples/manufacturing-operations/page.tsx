@@ -37,7 +37,7 @@ export default function AddNewManufacturingOperationsPage() {
   const [editingItem, setEditingItem] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
   const [formData, setFormData] = useState({
     operation_type: "",
     operation_name: "",
@@ -98,7 +98,7 @@ export default function AddNewManufacturingOperationsPage() {
     try {
       const data = {
         operation_id: editingItem ? editingItem.operation_id : generateOperationId(),
-        operation_type: formData.operation_type,
+        operation_type: formData.operation_type || null,
         operation_name: formData.operation_name,
         standard_duration: formData.standard_duration ? parseFloat(formData.standard_duration) : null,
         is_active: formData.is_active,
@@ -201,14 +201,14 @@ export default function AddNewManufacturingOperationsPage() {
                 <div className="space-y-2">
                   <Label>Operation Type (Optional)</Label>
                   <Select
-                    value={formData.operation_type}
-                    onValueChange={(v) => setFormData({ ...formData, operation_type: v })}
+                    value={formData.operation_type || undefined}
+                    onValueChange={(v) => setFormData({ ...formData, operation_type: v === "none" ? "" : v })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select type (optional)" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {OPERATION_TYPES.map((t) => (
                         <SelectItem key={t} value={t}>{t}</SelectItem>
                       ))}
@@ -260,7 +260,7 @@ export default function AddNewManufacturingOperationsPage() {
               className="pl-9"
             />
           </div>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <Select value={typeFilter || "all"} onValueChange={setTypeFilter}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Filter by Type" />
             </SelectTrigger>
@@ -271,7 +271,7 @@ export default function AddNewManufacturingOperationsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" onClick={() => { setSearchTerm(""); setTypeFilter(""); }}>
+          <Button variant="outline" size="icon" onClick={() => { setSearchTerm(""); setTypeFilter("all"); }}>
             <X className="h-4 w-4" />
           </Button>
         </div>

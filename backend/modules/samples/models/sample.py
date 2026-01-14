@@ -163,8 +163,11 @@ class SampleRequest(Base):
     # Sample details
     request_pcs = Column(Integer, nullable=True)  # Number of pieces requested
     sample_category = Column(String, nullable=True)  # Proto, Fit, PP, SMS, Size Set, etc.
+    color_ids = Column(JSON, nullable=True)  # Array of color IDs
     color_name = Column(String, nullable=True)
+    size_ids = Column(JSON, nullable=True)  # Array of size IDs
     size_name = Column(String, nullable=True)
+    yarn_ids = Column(JSON, nullable=True)  # Array of yarn IDs (multiple yarns)
     additional_instruction = Column(Text, nullable=True)
 
     # Attachments

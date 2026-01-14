@@ -43,13 +43,21 @@ export default function AddSampleRequestPage() {
   });
 
   // Fetch yarn and trims from merchandiser (material-details)
-  const { data: yarnsData } = useQuery({
+  const { data: yarnsData, isLoading: yarnsLoading, error: yarnsError } = useQuery({
     queryKey: ["merchandiser", "yarn"],
     queryFn: async () => {
       try {
-        return await api.merchandiser.yarn.getAll();
+        const data = await api.merchandiser.yarn.getAll();
+        console.log('[Yarn Fetch] Raw response:', data);
+        console.log('[Yarn Fetch] Total yarns:', data?.length || 0);
+        if (data && Array.isArray(data) && data.length > 0) {
+          console.log('[Yarn Fetch] First yarn structure:', JSON.stringify(data[0], null, 2));
+          // Return all yarns - yarn_id is required in the model, so all should have it
+          return data;
+        }
+        return [];
       } catch (error) {
-        console.error('Failed to fetch yarns:', error);
+        console.error('[Yarn Fetch] Error:', error);
         return [];
       }
     },
@@ -85,18 +93,25 @@ export default function AddSampleRequestPage() {
     queryKey: ["size-charts"],
     queryFn: async () => {
       try {
-        // Fetch all size charts from size details
+        // Fetch all size charts from size_chart_master with full details
         const response = await fetch('/api/v1/size-charts');
         if (!response.ok) return [];
         const data = await response.json();
-        // Extract unique sizes with their IDs
+        // Extract unique sizes with their auto_generated_id (size_id) and all details
         const uniqueSizes = new Map();
         data.forEach((chart: any) => {
-          if (chart.size_name && chart.id) {
-            uniqueSizes.set(chart.size_name, {
+          if (chart.auto_generated_id && chart.size_name) {
+            // Use auto_generated_id as the unique key and size_id
+            uniqueSizes.set(chart.auto_generated_id, {
               id: chart.id,
               size_name: chart.size_name,
-              size_id: chart.size_id || chart.id
+              size_id: chart.auto_generated_id, // Use auto_generated_id as size_id
+              auto_generated_id: chart.auto_generated_id,
+              profile_name: chart.profile_name || '',
+              product_type_name: chart.product_type_name || '',
+              gender: chart.gender || '',
+              measurements: chart.measurements || {},
+              size_order: chart.size_order || 0
             });
           }
         });
@@ -180,7 +195,7 @@ export default function AddSampleRequestPage() {
         color_ids: Array.isArray(sampleData.color_ids) ? sampleData.color_ids : (sampleData.color_id ? [sampleData.color_id] : []),
         color_name: sampleData.color_name || "",
         size_ids: Array.isArray(sampleData.size_ids) ? sampleData.size_ids : (sampleData.size_id ? [sampleData.size_id] : []),
-        size_name: sampleData.size_name || "",
+        size_names: Array.isArray(sampleData.size_names) ? sampleData.size_names : (sampleData.size_name ? [sampleData.size_name] : []),
         priority: sampleData.priority || "normal",
         yarn_handover_date: sampleData.yarn_handover_date ? new Date(sampleData.yarn_handover_date).toISOString().split('T')[0] : "",
         trims_handover_date: sampleData.trims_handover_date ? new Date(sampleData.trims_handover_date).toISOString().split('T')[0] : "",
@@ -212,8 +227,8 @@ export default function AddSampleRequestPage() {
     decorative_part: [] as string[],  // Array of decorative parts
     color_ids: [] as number[],  // Array of color IDs
     color_name: "",
-    size_ids: [] as number[],  // Array of size IDs
-    size_name: "",
+    size_ids: [] as string[],  // Array of size IDs (auto_generated_id)
+    size_names: [] as string[],  // Array of size names for display
     yarn_handover_date: "",
     trims_handover_date: "",
     required_date: "",
@@ -472,12 +487,22 @@ export default function AddSampleRequestPage() {
       decorative_part: formData.decorative_part || [],
       additional_instruction: formData.additional_instruction || [],
       techpack_files: formData.techpack_files || [],
+      // Set size_id from size_ids array (use first one for backward compatibility)
+      size_id: formData.size_ids && formData.size_ids.length > 0 ? formData.size_ids[0] : null,
+      size_name: formData.size_names && formData.size_names.length > 0 ? formData.size_names.join(', ') : null,
     };
     
-    // Set yarn_id from yarn_ids array if not set
+    // Set yarn_id from yarn_ids array if not set (for backward compatibility)
     if (!submitData.yarn_id && submitData.yarn_ids && submitData.yarn_ids.length > 0) {
       submitData.yarn_id = submitData.yarn_ids[0];
     }
+    // Ensure yarn_ids is always an array
+    if (!submitData.yarn_ids || !Array.isArray(submitData.yarn_ids)) {
+      submitData.yarn_ids = submitData.yarn_id ? [submitData.yarn_id] : [];
+    }
+    
+    // Remove size_names from submit (not needed by backend)
+    delete submitData.size_names;
     
     // For updates, exclude sample_id (it shouldn't change)
     if (isEditing && editSampleId) {
@@ -774,30 +799,67 @@ export default function AddSampleRequestPage() {
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-[200px] p-0">
+                    <PopoverContent className="w-[600px] p-0" align="start">
                       <Command>
-                        <CommandInput placeholder="Search sizes..." />
+                        <CommandInput placeholder="Search by size ID, name, profile, or product type..." />
                         <CommandEmpty>No sizes found.</CommandEmpty>
-                        <CommandList>
+                        <CommandList className="max-h-[400px]">
                           <CommandGroup>
-                            {(sizesData || []).map((size: any) => (
-                              <CommandItem
-                                key={size.id}
-                                value={size.size_name}
-                                onSelect={() => {
-                                  const isSelected = formData.size_ids.includes(size.id);
-                                  setFormData({
-                                    ...formData,
-                                    size_ids: isSelected
-                                      ? formData.size_ids.filter(id => id !== size.id)
-                                      : [...formData.size_ids, size.id]
-                                  });
-                                }}
-                              >
-                                <Check className={cn("mr-2 h-4 w-4", formData.size_ids.includes(size.id) ? "opacity-100" : "opacity-0")} />
-                                <span className="text-sm">{size.size_name}</span>
-                              </CommandItem>
-                            ))}
+                            {(sizesData || []).map((size: any) => {
+                              const isSelected = formData.size_ids.includes(size.size_id);
+                              return (
+                                <CommandItem
+                                  key={size.size_id}
+                                  value={`${size.size_id} ${size.size_name} ${size.profile_name || ''} ${size.product_type_name || ''}`}
+                                  onSelect={() => {
+                                    setFormData({
+                                      ...formData,
+                                      size_ids: isSelected
+                                        ? formData.size_ids.filter(id => id !== size.size_id)
+                                        : [...formData.size_ids, size.size_id],
+                                      size_names: isSelected
+                                        ? formData.size_names.filter(name => name !== size.size_name)
+                                        : [...formData.size_names, size.size_name]
+                                    });
+                                  }}
+                                  className="p-3"
+                                >
+                                  <div className="flex items-start gap-3 w-full">
+                                    <Check className={cn("mt-1 h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-sm font-medium">{size.size_id}</span>
+                                        <span className="text-xs text-muted-foreground">({size.size_name})</span>
+                                      </div>
+                                      <div className="text-xs text-muted-foreground space-y-0.5">
+                                        {size.profile_name && (
+                                          <div>Profile: <span className="font-medium">{size.profile_name}</span></div>
+                                        )}
+                                        {size.product_type_name && (
+                                          <div>Product Type: <span className="font-medium">{size.product_type_name}</span></div>
+                                        )}
+                                        {size.gender && (
+                                          <div>Gender: <span className="font-medium">{size.gender}</span></div>
+                                        )}
+                                        {size.measurements && Object.keys(size.measurements).length > 0 && (
+                                          <div className="mt-1">
+                                            <span className="font-medium">Measurements: </span>
+                                            <span className="text-xs">
+                                              {Object.entries(size.measurements).slice(0, 3).map(([key, value]) => (
+                                                <span key={key} className="mr-2">{key}: {String(value)}</span>
+                                              ))}
+                                              {Object.keys(size.measurements).length > 3 && (
+                                                <span className="text-muted-foreground">+{Object.keys(size.measurements).length - 3} more</span>
+                                              )}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </CommandItem>
+                              );
+                            })}
                           </CommandGroup>
                         </CommandList>
                       </Command>
@@ -806,8 +868,8 @@ export default function AddSampleRequestPage() {
                 </div>
               </div>
 
-              {/* Row 2: Request Pcs, Yarn ID, Trims ID, Decorative Part, Yarn Handover Date, Trims Handover Date, Required Date - 7 columns */}
-              <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
+              {/* Row 2: Request Pcs, Yarn ID, Trims ID, Yarn Handover Date, Trims Handover Date, Required Date - 6 columns */}
+              <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' }}>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Request Pcs</Label>
                   <Input className="h-10" type="number" value={formData.request_pcs} onChange={(e) => setFormData({ ...formData, request_pcs: e.target.value })} />
@@ -817,36 +879,65 @@ export default function AddSampleRequestPage() {
                   <Popover open={yarnOpen} onOpenChange={setYarnOpen}>
                     <PopoverTrigger asChild>
                       <Button variant="outline" role="combobox" className="w-full justify-between h-10 text-sm">
-                        {formData.yarn_id 
-                          ? (yarnsData || []).find((y: any) => y.product_id === formData.yarn_id)?.product_name || formData.yarn_id
-                          : "Select yarn..."}
+                        {yarnsLoading ? (
+                          "Loading..."
+                        ) : formData.yarn_ids && formData.yarn_ids.length > 0 ? (
+                          `${formData.yarn_ids.length} yarn(s) selected`
+                        ) : (
+                          "Select yarn..."
+                        )}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[300px] p-0">
                       <Command>
                         <CommandInput placeholder="Search yarns..." />
-                        <CommandEmpty>No yarns found.</CommandEmpty>
-                        <CommandList>
-                          <CommandGroup>
-                            {(yarnsData || []).map((yarn: any) => (
-                              <CommandItem
-                                key={yarn.product_id}
-                                value={`${yarn.product_id} ${yarn.product_name}`}
-                                onSelect={() => {
-                                  setFormData({ ...formData, yarn_id: yarn.product_id });
-                                  setYarnOpen(false);
-                                }}
-                              >
-                                <Check className={cn("mr-2 h-4 w-4", formData.yarn_id === yarn.product_id ? "opacity-100" : "opacity-0")} />
-                                <div className="flex flex-col">
-                                  <span className="text-sm font-medium">{yarn.product_id}</span>
-                                  <span className="text-xs text-muted-foreground">{yarn.product_name}</span>
-                                </div>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
+                        {yarnsLoading ? (
+                          <CommandList>
+                            <div className="px-2 py-6 text-center text-sm text-muted-foreground">Loading yarns...</div>
+                          </CommandList>
+                        ) : yarnsError ? (
+                          <CommandList>
+                            <div className="px-2 py-6 text-center text-sm text-red-500">Error loading yarns</div>
+                          </CommandList>
+                        ) : (
+                          <>
+                            <CommandEmpty>No yarns found.</CommandEmpty>
+                            <CommandList>
+                              <CommandGroup>
+                                {(yarnsData || []).map((yarn: any) => {
+                                  const yarnId = yarn.yarn_id;
+                                  const yarnName = yarn.yarn_name || 'No name';
+                                  if (!yarnId) {
+                                    console.warn('[Yarn Render] Yarn without ID:', yarn);
+                                    return null;
+                                  }
+                                  const isSelected = formData.yarn_ids.includes(yarnId);
+                                  return (
+                                    <CommandItem
+                                      key={yarnId}
+                                      value={`${yarnId} ${yarnName}`}
+                                      onSelect={() => {
+                                        setFormData({
+                                          ...formData,
+                                          yarn_ids: isSelected
+                                            ? formData.yarn_ids.filter(id => id !== yarnId)
+                                            : [...formData.yarn_ids, yarnId]
+                                        });
+                                      }}
+                                    >
+                                      <Check className={cn("mr-2 h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
+                                      <div className="flex flex-col">
+                                        <span className="text-sm font-medium">{yarnId}</span>
+                                        <span className="text-xs text-muted-foreground">{yarnName}</span>
+                                      </div>
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandGroup>
+                            </CommandList>
+                          </>
+                        )}
                       </Command>
                     </PopoverContent>
                   </Popover>
@@ -896,41 +987,6 @@ export default function AddSampleRequestPage() {
                   </Popover>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Decorative Part</Label>
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <Input 
-                        className="h-10 flex-1" 
-                        value={newDecorativePart} 
-                        onChange={(e) => setNewDecorativePart(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addDecorativePart())}
-                        placeholder="Enter decorative part..." 
-                      />
-                      <Button type="button" onClick={addDecorativePart} size="sm" className="h-10">
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    {formData.decorative_part.length > 0 && (
-                      <div className="space-y-2 border rounded-lg p-3">
-                        {formData.decorative_part.map((part, idx) => (
-                          <div key={idx} className="flex items-center gap-2">
-                            <span className="flex-1 text-sm">{part}</span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeDecorativePart(idx)}
-                              className="h-6 w-6 p-0"
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="space-y-2">
                   <Label className="text-sm font-medium">Yarn Handover Date</Label>
                   <Input className="h-10" type="date" value={formData.yarn_handover_date} onChange={(e) => setFormData({ ...formData, yarn_handover_date: e.target.value })} />
                 </div>
@@ -956,7 +1012,44 @@ export default function AddSampleRequestPage() {
                 </div>
               </div>
 
-              {/* Row 4: Additional Instructions (full width with multiple entries) */}
+              {/* Row 4: Decorative Part (moved below yarn details, above additional instruction) */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Decorative Part</Label>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input 
+                      className="h-10 flex-1" 
+                      value={newDecorativePart} 
+                      onChange={(e) => setNewDecorativePart(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addDecorativePart())}
+                      placeholder="Enter decorative part..." 
+                    />
+                    <Button type="button" onClick={addDecorativePart} size="sm" className="h-10">
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {formData.decorative_part.length > 0 && (
+                    <div className="space-y-2 border rounded-lg p-3">
+                      {formData.decorative_part.map((part, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="flex-1 text-sm">{part}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeDecorativePart(idx)}
+                            className="h-6 w-6 p-0"
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Row 5: Additional Instructions (full width with multiple entries) */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Additional Instructions</Label>
                 <div className="space-y-2">

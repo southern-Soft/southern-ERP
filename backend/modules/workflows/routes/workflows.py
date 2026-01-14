@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 
 from core.database import get_db_samples
+from core.dependencies import get_current_username
 from ..services.workflow_service import WorkflowService, WorkflowTemplateService
 from ..schemas.workflow import (
     CreateWorkflowRequest, UpdateWorkflowRequest, WorkflowResponse,
@@ -43,14 +44,12 @@ async def get_workflow_statistics(
 @router.post("/workflows", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
 async def create_workflow(
     workflow_data: CreateWorkflowRequest,
-    db: Session = Depends(get_db_samples)
+    db: Session = Depends(get_db_samples),
+    created_by: str = Depends(get_current_username)
 ):
     """Create a new workflow"""
     try:
         service = WorkflowService(db)
-        # TODO: Get actual user from authentication
-        created_by = "system_user"  # Placeholder
-        
         workflow = service.create_workflow(workflow_data, created_by)
         return workflow
     except ValueError as e:
@@ -178,13 +177,11 @@ async def get_workflow_cards(
 async def update_card_status(
     card_id: int,
     status_data: UpdateCardStatusRequest,
-    db: Session = Depends(get_db_samples)
+    db: Session = Depends(get_db_samples),
+    updated_by: str = Depends(get_current_username)
 ):
     """Update card status"""
     service = WorkflowService(db)
-    # TODO: Get actual user from authentication
-    updated_by = "system_user"  # Placeholder
-    
     card = service.update_card_status(card_id, status_data, updated_by)
     
     if not card:
@@ -219,13 +216,11 @@ async def update_card_assignee(
 async def add_card_comment(
     card_id: int,
     comment_data: CardCommentCreate,
-    db: Session = Depends(get_db_samples)
+    db: Session = Depends(get_db_samples),
+    commented_by: str = Depends(get_current_username)
 ):
     """Add a comment to a card"""
     service = WorkflowService(db)
-    # TODO: Get actual user from authentication
-    commented_by = "system_user"  # Placeholder
-    
     comment = service.add_card_comment(card_id, comment_data, commented_by)
     
     if not comment:
@@ -241,7 +236,8 @@ async def add_card_comment(
 async def upload_card_attachment(
     card_id: int,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db_samples)
+    db: Session = Depends(get_db_samples),
+    uploaded_by: str = Depends(get_current_username)
 ):
     """Upload an attachment to a card"""
     try:
@@ -261,9 +257,6 @@ async def upload_card_attachment(
         
         # Create attachment record
         service = WorkflowService(db)
-        # TODO: Get actual user from authentication
-        uploaded_by = "system_user"  # Placeholder
-        
         attachment = service.upload_card_attachment(
             card_id=card_id,
             file_name=file.filename,
