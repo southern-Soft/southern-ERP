@@ -235,9 +235,11 @@ services:
       - "${FRONTEND_PORT:-2222}:3000"
     environment:
       - NODE_ENV=production
-      # Backend URL for API proxy (runtime) - uses Docker service name
-      - BACKEND_URL=${BACKEND_URL:-http://backend:${BACKEND_PORT:-8000}}
-      - API_URL=${API_URL:-http://backend:${BACKEND_PORT:-8000}}
+      # Backend URL for API proxy (server-side rendering) - uses Docker service name
+      - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
+      - API_URL=${API_URL:-http://backend:8000}
+      # Public API URL for client-side (uses API masking via /api/v1)
+      - NEXT_PUBLIC_API_MASK_URL=${NEXT_PUBLIC_API_MASK_URL:-/api/v1}
     depends_on:
       backend:
         condition: service_healthy
