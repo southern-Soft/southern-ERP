@@ -130,10 +130,17 @@ def create_contact(contact_data: ContactPersonCreate, db: Session = Depends(get_
 @router.get("/contacts", response_model=List[ContactPersonResponse])
 def get_contacts(buyer_id: int = None, db: Session = Depends(get_db_clients)):
     """Get all contact persons, optionally filtered by buyer"""
-    query = db.query(ContactPerson)
-    if buyer_id:
-        query = query.filter(ContactPerson.buyer_id == buyer_id)
-    return query.order_by(ContactPerson.id.desc()).all()
+    try:
+        query = db.query(ContactPerson)
+        if buyer_id:
+            query = query.filter(ContactPerson.buyer_id == buyer_id)
+        return query.order_by(ContactPerson.id.desc()).all()
+    except Exception as e:
+        logger.error(f"Error fetching contacts: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch contacts: {str(e)}"
+        )
 
 
 # Shipping Info endpoints
@@ -150,10 +157,24 @@ def create_shipping_info(shipping_data: ShippingInfoCreate, db: Session = Depend
 @router.get("/shipping", response_model=List[ShippingInfoResponse])
 def get_shipping_info(buyer_id: int = None, db: Session = Depends(get_db_clients)):
     """Get all shipping information"""
-    query = db.query(ShippingInfo)
-    if buyer_id:
-        query = query.filter(ShippingInfo.buyer_id == buyer_id)
-    return query.options(joinedload(ShippingInfo.buyer)).order_by(ShippingInfo.id.desc()).all()
+    try:
+        query = db.query(ShippingInfo)
+        if buyer_id:
+            query = query.filter(ShippingInfo.buyer_id == buyer_id)
+        
+        # Try with joinedload first, fallback to simple query if relationship fails
+        try:
+            shipping_info = query.options(joinedload(ShippingInfo.buyer)).order_by(ShippingInfo.id.desc()).all()
+        except Exception as rel_error:
+            logger.warning(f"Failed to load buyer relationship: {rel_error}. Loading shipping info without relationship.")
+            shipping_info = query.order_by(ShippingInfo.id.desc()).all()
+        return shipping_info
+    except Exception as e:
+        logger.error(f"Error fetching shipping info: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch shipping info: {str(e)}"
+        )
 
 
 # Banking Info endpoints
@@ -170,7 +191,14 @@ def create_banking_info(banking_data: BankingInfoCreate, db: Session = Depends(g
 @router.get("/banking", response_model=List[BankingInfoResponse])
 def get_banking_info(db: Session = Depends(get_db_clients)):
     """Get all banking information"""
-    return db.query(BankingInfo).order_by(BankingInfo.id.desc()).all()
+    try:
+        return db.query(BankingInfo).order_by(BankingInfo.id.desc()).all()
+    except Exception as e:
+        logger.error(f"Error fetching banking info: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch banking info: {str(e)}"
+        )
 
 
 @router.delete("/banking/{banking_id}", status_code=status.HTTP_204_NO_CONTENT)
