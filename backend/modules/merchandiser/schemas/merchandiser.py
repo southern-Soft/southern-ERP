@@ -320,8 +320,10 @@ class SamplePrimaryInfoBase(BaseModel):
     trims_ids: Optional[List[str]] = Field(default=None, description="Multiple Trims IDs")
     trims_details: Optional[str] = None
     decorative_part: Optional[List[str]] = Field(default=None, description="Multiple Decorative Parts (Array of strings)")
+    color_ids: Optional[List[int]] = Field(default=None, description="Multiple Color IDs")
     color_id: Optional[str] = None
     color_name: Optional[str] = None
+    size_ids: Optional[List[str]] = Field(default=None, description="Multiple Size IDs")
     size_id: Optional[str] = None
     size_name: Optional[str] = None
     yarn_handover_date: Optional[datetime] = None

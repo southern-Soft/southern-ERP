@@ -5,7 +5,7 @@ Monitors system health for production deployment - Multi-Database Architecture
 
 from fastapi import APIRouter
 from sqlalchemy import text
-from datetime import datetime
+from datetime import datetime, timezone
 from core.database import (
     engines, DatabaseType,
     SessionLocalClients, SessionLocalSamples, SessionLocalUsers,
@@ -23,7 +23,7 @@ async def health_check():
     """
     health_status = {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "databases": {}
     }
 

@@ -210,7 +210,7 @@ def generate_sample_id(db: Session) -> str:
         try:
             last_num = int(last_sample.sample_id.split("-")[-1])
             new_num = last_num + 1
-        except:
+        except (ValueError, IndexError, AttributeError):
             new_num = 1
     else:
         new_num = 1
@@ -325,11 +325,19 @@ def update_sample_request(request_id: int, request_data: SampleRequestUpdate, db
         raise HTTPException(status_code=404, detail="Sample request not found")
 
     update_data = request_data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(request, key, value)
+    try:
+        for key, value in update_data.items():
+            setattr(request, key, value)
 
-    db.commit()
-    db.refresh(request)
+        db.commit()
+        db.refresh(request)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating sample request {request_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update sample request: {str(e)}"
+        )
     
     # Sync update to SamplePrimaryInfo in merchandiser database (BIDIRECTIONAL SYNC)
     try:
@@ -352,7 +360,8 @@ def update_sample_request(request_id: int, request_data: SampleRequestUpdate, db
                         buyer_info = buyer_service.get_by_id(update_data['buyer_id'])
                         if buyer_info:
                             buyer_name = buyer_info.get("buyer_name")
-                    except:
+                    except (KeyError, ValueError, AttributeError) as buyer_error:
+                        logger.warning(f"Could not fetch buyer name for buyer_id {update_data['buyer_id']}: {buyer_error}")
                         pass
                     if buyer_name:
                         sample_primary.buyer_name = buyer_name
@@ -370,14 +379,32 @@ def update_sample_request(request_id: int, request_data: SampleRequestUpdate, db
                     sample_primary.ply = str(update_data['ply']) if update_data['ply'] is not None else None
                 if 'sample_category' in update_data:
                     sample_primary.sample_category = update_data['sample_category']
+                if 'color_ids' in update_data:
+                    # SampleRequest has color_ids as List[int], SamplePrimaryInfo has it as JSON
+                    sample_primary.color_ids = update_data['color_ids']
+                    # Also set color_id (first one) for backward compatibility
+                    if update_data['color_ids'] and len(update_data['color_ids']) > 0:
+                        sample_primary.color_id = str(update_data['color_ids'][0])
                 if 'color_name' in update_data:
                     sample_primary.color_name = update_data['color_name']
+                if 'size_ids' in update_data:
+                    # SampleRequest has size_ids as List[str], SamplePrimaryInfo has it as JSON
+                    sample_primary.size_ids = update_data['size_ids']
+                    # Also set size_id (first one) for backward compatibility
+                    if update_data['size_ids'] and len(update_data['size_ids']) > 0:
+                        sample_primary.size_id = update_data['size_ids'][0]
                 if 'size_name' in update_data:
                     sample_primary.size_name = update_data['size_name']
+                if 'yarn_ids' in update_data:
+                    # SampleRequest has yarn_ids as List[str], SamplePrimaryInfo has it as JSON
+                    sample_primary.yarn_ids = update_data['yarn_ids']
+                    # Also set yarn_id (first one) for backward compatibility
+                    if update_data['yarn_ids'] and len(update_data['yarn_ids']) > 0:
+                        sample_primary.yarn_id = update_data['yarn_ids'][0]
                 if 'yarn_id' in update_data:
                     sample_primary.yarn_id = update_data['yarn_id']
-                    # Also update yarn_ids array if yarn_id is set
-                    if update_data['yarn_id']:
+                    # Also update yarn_ids array if yarn_id is set (but yarn_ids takes precedence)
+                    if 'yarn_ids' not in update_data and update_data['yarn_id']:
                         sample_primary.yarn_ids = [update_data['yarn_id']]
                 if 'yarn_details' in update_data:
                     sample_primary.yarn_details = update_data['yarn_details']
@@ -438,13 +465,21 @@ def update_sample_request(request_id: int, request_data: SampleRequestUpdate, db
                     else:
                         sample_primary.techpack_files = None
                 
-                merchandiser_db.commit()
-                logger.info(f"✅ Successfully synced sample request update for sample_id {request.sample_id} to merchandiser database")
+                try:
+                    merchandiser_db.commit()
+                    logger.info(f"✅ Successfully synced sample request update for sample_id {request.sample_id} to merchandiser database")
+                except Exception as commit_error:
+                    merchandiser_db.rollback()
+                    logger.error(f"Failed to commit sync to merchandiser database for sample_id {request.sample_id}: {str(commit_error)}", exc_info=True)
+                    raise
         finally:
             merchandiser_db.close()
-    except Exception as sync_error:
-        # Log error but don't fail the samples update
+    except (HTTPException, ValueError, AttributeError, KeyError) as sync_error:
+        # Log error but don't fail the samples update for sync issues
         logger.warning(f"Failed to sync sample request update to merchandiser database for sample_id {request.sample_id}: {str(sync_error)}", exc_info=True)
+    except Exception as sync_error:
+        # Log unexpected errors but don't fail the samples update
+        logger.error(f"Unexpected error syncing to merchandiser database for sample_id {request.sample_id}: {str(sync_error)}", exc_info=True)
     
     # Create notifications for all merchandiser department users
     try:
@@ -1074,7 +1109,7 @@ def parse_hms_to_minutes(hms: str) -> float:
         minutes = int(parts[1])
         seconds = int(parts[2])
         return hours * 60 + minutes + seconds / 60
-    except:
+    except (ValueError, IndexError, AttributeError):
         return 0.0
 
 

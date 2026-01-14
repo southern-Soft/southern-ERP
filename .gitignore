@@ -108,8 +108,23 @@ uploads/
 *_ANALYSIS.md
 *_FIX.md
 *_IMPLEMENTATION.md
-updated_log*.md
+*_ANALYSIS.md
+CLEANUP_ANALYSIS.md
 debug-*.sh
 
-# Database diagram files
-*Diagram*.csv
+# Database diagram files (keep for reference, but ignore if large)
+# *Diagram*.csv
+
+# Auto-generated files
+backend/actual_openapi.json
+*.backup
+*.bak
+*.old
+*.tmp
+*.temp
+*~
+
+# Large documentation files (optional - uncomment if you want to ignore)
+# updated_log.md
+# updated_logs.md
+# backend/docs/*.tex

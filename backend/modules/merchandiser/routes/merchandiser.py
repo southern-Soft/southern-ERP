@@ -843,28 +843,49 @@ async def sync_samples_to_samples_db(db: Session = Depends(get_db_merchandiser))
                 buyer_info = buyer_service.get_by_id(sample.buyer_id)
                 if buyer_info:
                     buyer_name = buyer_info.get("buyer_name")
-            except:
+            except (KeyError, ValueError, AttributeError) as buyer_error:
+                logger.warning(f"Could not fetch buyer name for buyer_id {sample.buyer_id}: {buyer_error}")
                 pass
             
             import json
             
-            # Map yarn_ids (first one if multiple)
-            # Handle both JSON array and string/list formats
-            yarn_ids_list = sample.yarn_ids
-            if isinstance(yarn_ids_list, str):
+            # Handle yarn_ids - keep as JSON array (SampleRequest model supports JSON)
+            yarn_ids_json = sample.yarn_ids
+            if isinstance(yarn_ids_json, str):
                 try:
-                    yarn_ids_list = json.loads(yarn_ids_list)
-                except:
-                    yarn_ids_list = []
-            yarn_id = yarn_ids_list[0] if yarn_ids_list and len(yarn_ids_list) > 0 else None
+                    yarn_ids_json = json.loads(yarn_ids_json)
+                except (json.JSONDecodeError, TypeError):
+                    yarn_ids_json = []
+            # Also set yarn_id (first one) for backward compatibility
+            yarn_id = yarn_ids_json[0] if yarn_ids_json and len(yarn_ids_json) > 0 else (sample.yarn_id or None)
             
             # Handle trims_ids - keep as JSON (SampleRequest model supports JSON)
             trims_ids_json = sample.trims_ids
             if isinstance(trims_ids_json, str):
                 try:
                     trims_ids_json = json.loads(trims_ids_json)
-                except:
-                    pass
+                except (json.JSONDecodeError, TypeError):
+                    trims_ids_json = []
+            
+            # Handle color_ids - keep as JSON array
+            color_ids_json = sample.color_ids
+            if isinstance(color_ids_json, str):
+                try:
+                    color_ids_json = json.loads(color_ids_json)
+                except (json.JSONDecodeError, TypeError):
+                    color_ids_json = []
+            # Also set color_id (first one) for backward compatibility
+            color_id = color_ids_json[0] if color_ids_json and len(color_ids_json) > 0 else (sample.color_id or None)
+            
+            # Handle size_ids - keep as JSON array
+            size_ids_json = sample.size_ids
+            if isinstance(size_ids_json, str):
+                try:
+                    size_ids_json = json.loads(size_ids_json)
+                except (json.JSONDecodeError, TypeError):
+                    size_ids_json = []
+            # Also set size_id (first one) for backward compatibility
+            size_id = size_ids_json[0] if size_ids_json and len(size_ids_json) > 0 else (sample.size_id or None)
             
             # Map ply (convert string to int if possible)
             ply_value = None
@@ -874,14 +895,16 @@ async def sync_samples_to_samples_db(db: Session = Depends(get_db_merchandiser))
                 except (ValueError, TypeError):
                     pass
             
-            # Convert JSON fields to string format for samples database
-            # decorative_part: JSON array -> comma-separated string
-            decorative_part_str = None
-            if sample.decorative_part:
-                if isinstance(sample.decorative_part, list):
-                    decorative_part_str = ", ".join(sample.decorative_part) if sample.decorative_part else None
-                else:
-                    decorative_part_str = str(sample.decorative_part)
+            # Handle decorative_part - keep as JSON array (SampleRequest model supports JSON)
+            decorative_part_json = sample.decorative_part
+            if isinstance(decorative_part_json, str):
+                try:
+                    decorative_part_json = json.loads(decorative_part_json)
+                except (json.JSONDecodeError, TypeError):
+                    # If not valid JSON, treat as comma-separated string
+                    decorative_part_json = [s.strip() for s in decorative_part_json.split(',')] if decorative_part_json else []
+            # Also create comma-separated string for backward compatibility (decorative_part is String in SampleRequest)
+            decorative_part_str = ", ".join(decorative_part_json) if decorative_part_json and isinstance(decorative_part_json, list) else (str(decorative_part_json) if decorative_part_json else None)
             
             # additional_instruction: JSON array of objects -> newline-separated string
             additional_instruction_str = None
@@ -909,6 +932,17 @@ async def sync_samples_to_samples_db(db: Session = Depends(get_db_merchandiser))
                         techpack_url = first_file.get('url')
                         techpack_filename = first_file.get('filename')
             
+            # Build color_name and size_name from arrays if not set
+            color_name_final = sample.color_name
+            if not color_name_final and color_ids_json:
+                # Try to get color names from color IDs (would need color service)
+                color_name_final = None  # Will be set by frontend if needed
+            
+            size_name_final = sample.size_name
+            if not size_name_final and size_ids_json:
+                # Try to get size names from size IDs (would need size service)
+                size_name_final = None  # Will be set by frontend if needed
+            
             # Create SampleRequest with all matching fields
             sample_request = SampleRequest(
                 sample_id=sample.sample_id,
@@ -919,13 +953,16 @@ async def sync_samples_to_samples_db(db: Session = Depends(get_db_merchandiser))
                 gauge=sample.gauge,
                 ply=ply_value,
                 sample_category=sample.sample_category,
-                color_name=sample.color_name,
-                size_name=sample.size_name,
-                yarn_id=yarn_id or sample.yarn_id,
+                color_ids=color_ids_json,  # All color IDs
+                color_name=color_name_final or sample.color_name,
+                size_ids=size_ids_json,  # All size IDs
+                size_name=size_name_final or sample.size_name,
+                yarn_ids=yarn_ids_json,  # All yarn IDs
+                yarn_id=yarn_id,  # First yarn ID for backward compatibility
                 yarn_details=sample.yarn_details,
                 trims_ids=trims_ids_json,
                 trims_details=sample.trims_details,
-                decorative_part=decorative_part_str,  # Converted from JSON array to string
+                decorative_part=decorative_part_str,  # Comma-separated string (backward compatibility)
                 decorative_details=None,  # Removed field
                 yarn_handover_date=sample.yarn_handover_date,
                 trims_handover_date=sample.trims_handover_date,
@@ -1025,7 +1062,8 @@ async def update_sample_primary_info(
                         buyer_info = buyer_service.get_by_id(update_data['buyer_id'])
                         if buyer_info:
                             buyer_name = buyer_info.get("buyer_name")
-                    except:
+                    except (KeyError, ValueError, AttributeError) as buyer_error:
+                        logger.warning(f"Could not fetch buyer name for buyer_id {update_data['buyer_id']}: {buyer_error}")
                         pass
                     if buyer_name:
                         sample_request.buyer_name = buyer_name
@@ -1045,15 +1083,35 @@ async def update_sample_primary_info(
                         pass
                 if 'sample_category' in update_data:
                     sample_request.sample_category = update_data['sample_category']
+                if 'color_ids' in update_data:
+                    # SamplePrimaryInfo has color_ids as JSON array, SampleRequest also has it as JSON
+                    sample_request.color_ids = update_data['color_ids']
+                    # Also set color_name if not provided
+                    if 'color_name' not in update_data and update_data['color_ids']:
+                        # Will be set by frontend if needed
+                        pass
                 if 'color_name' in update_data:
                     sample_request.color_name = update_data['color_name']
+                if 'size_ids' in update_data:
+                    # SamplePrimaryInfo has size_ids as JSON array, SampleRequest also has it as JSON
+                    sample_request.size_ids = update_data['size_ids']
+                    # Also set size_name if not provided
+                    if 'size_name' not in update_data and update_data['size_ids']:
+                        # Will be set by frontend if needed
+                        pass
                 if 'size_name' in update_data:
                     sample_request.size_name = update_data['size_name']
                 if 'yarn_ids' in update_data:
+                    # SamplePrimaryInfo has yarn_ids as JSON array, SampleRequest also has it as JSON
+                    sample_request.yarn_ids = update_data['yarn_ids']
+                    # Also set yarn_id (first one) for backward compatibility
                     yarn_id = update_data['yarn_ids'][0] if update_data['yarn_ids'] and len(update_data['yarn_ids']) > 0 else None
                     sample_request.yarn_id = yarn_id
                 if 'yarn_id' in update_data:
                     sample_request.yarn_id = update_data['yarn_id']
+                    # Also update yarn_ids array if yarn_id is set (but yarn_ids takes precedence)
+                    if 'yarn_ids' not in update_data and update_data['yarn_id']:
+                        sample_request.yarn_ids = [update_data['yarn_id']]
                 if 'yarn_details' in update_data:
                     sample_request.yarn_details = update_data['yarn_details']
                 if 'trims_ids' in update_data:

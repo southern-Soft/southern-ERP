@@ -42,6 +42,7 @@ export default function SampleRequestPage() {
     gauge: "",
     ply: "",
     yarn_id: "",
+    yarn_ids: [] as string[],  // Array of yarn IDs
     yarn_details: "",
     trims_ids: "",
     trims_details: "",
@@ -55,7 +56,7 @@ export default function SampleRequestPage() {
     sample_category: "Proto",
     priority: "normal",
     color_ids: [] as number[],
-    size_ids: [] as number[],
+    size_ids: [] as string[],  // Array of size IDs (auto_generated_id)
     color_name: "", // Legacy field for backward compatibility
     size_name: "", // Legacy field for backward compatibility
     additional_instruction: [] as Array<{instruction: string, done: boolean}>,
@@ -228,6 +229,7 @@ export default function SampleRequestPage() {
         ply: formData.ply ? parseInt(formData.ply) : null,
         item: formData.item || null,
         yarn_id: formData.yarn_id || null,
+        yarn_ids: formData.yarn_ids && formData.yarn_ids.length > 0 ? formData.yarn_ids : null,
         yarn_details: formData.yarn_details || null,
         trims_ids: formData.trims_ids ? formData.trims_ids.split(",").map((s) => s.trim()).filter(Boolean) : null,
         trims_details: formData.trims_details || null,
@@ -287,8 +289,9 @@ export default function SampleRequestPage() {
       ply: item.ply?.toString() || "",
       item: item.item || "",
       yarn_id: item.yarn_id || "",
+      yarn_ids: Array.isArray(item.yarn_ids) ? item.yarn_ids : (item.yarn_id ? [item.yarn_id] : []),
       yarn_details: item.yarn_details || "",
-      trims_ids: item.trims_ids?.join(", ") || "",
+      trims_ids: Array.isArray(item.trims_ids) ? item.trims_ids.join(", ") : (item.trims_ids || ""),
       trims_details: item.trims_details || "",
       decorative_part: item.decorative_part || "",
       decorative_details: item.decorative_details || "",
@@ -298,8 +301,8 @@ export default function SampleRequestPage() {
       request_pcs: item.request_pcs?.toString() || "",
       sample_category: item.sample_category || "Proto",
       priority: item.priority || "normal",
-      color_ids: item.color_ids || [],
-      size_ids: item.size_ids || [],
+      color_ids: Array.isArray(item.color_ids) ? item.color_ids : (item.color_ids ? [item.color_ids] : []),
+      size_ids: Array.isArray(item.size_ids) ? item.size_ids : (item.size_ids ? [item.size_ids] : []),
       color_name: item.color_name || "",
       size_name: item.size_name || "",
       additional_instruction: (() => {
@@ -361,7 +364,7 @@ export default function SampleRequestPage() {
     setEditingItem(null);
     setFormData({
       buyer_id: "", buyer_name: "", sample_name: "", gauge: "", ply: "", item: "",
-      yarn_id: "", yarn_details: "", trims_ids: "", trims_details: "",
+      yarn_id: "", yarn_ids: [], yarn_details: "", trims_ids: "", trims_details: "",
       decorative_part: "", decorative_details: "",
       yarn_handover_date: "", trims_handover_date: "", required_date: "", request_pcs: "",
       sample_category: "Proto", priority: "normal", color_ids: [], size_ids: [],
@@ -688,10 +691,6 @@ export default function SampleRequestPage() {
                   </Popover>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Decorative Part</Label>
-                  <Input className="h-10" value={formData.decorative_part} onChange={(e) => setFormData({ ...formData, decorative_part: e.target.value })} />
-                </div>
-                <div className="space-y-2">
                   <Label className="text-sm font-medium">Yarn Handover Date</Label>
                   <Input className="h-10" type="date" value={formData.yarn_handover_date} onChange={(e) => setFormData({ ...formData, yarn_handover_date: e.target.value })} />
                 </div>
@@ -705,7 +704,7 @@ export default function SampleRequestPage() {
                 </div>
               </div>
 
-              {/* Row 3: Yarn Details, Trims Details, Decorative Details, Techpack - Side by side */}
+              {/* Row 3: Yarn Details, Trims Details, Decorative Part, Decorative Details - Side by side */}
               <div className="grid grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Yarn Details</Label>
@@ -716,9 +715,17 @@ export default function SampleRequestPage() {
                   <Input className="h-10" value={formData.trims_details} onChange={(e) => setFormData({ ...formData, trims_details: e.target.value })} />
                 </div>
                 <div className="space-y-2">
+                  <Label className="text-sm font-medium">Decorative Part</Label>
+                  <Input className="h-10" value={formData.decorative_part} onChange={(e) => setFormData({ ...formData, decorative_part: e.target.value })} />
+                </div>
+                <div className="space-y-2">
                   <Label className="text-sm font-medium">Decorative Details</Label>
                   <Input className="h-10" value={formData.decorative_details} onChange={(e) => setFormData({ ...formData, decorative_details: e.target.value })} />
                 </div>
+              </div>
+
+              {/* Row 4: Techpack - Full width */}
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Attach Techpack</Label>
                   <div className="flex gap-2">

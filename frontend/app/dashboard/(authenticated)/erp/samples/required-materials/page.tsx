@@ -390,7 +390,7 @@ export default function SampleRequiredMaterialPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Sample Required Material</h1>
+          <h1 className="text-3xl font-bold">Add Sample Material</h1>
           <p className="text-muted-foreground">Add materials required for each sample from Material Details</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm(); }}>

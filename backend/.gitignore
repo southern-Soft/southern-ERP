@@ -3,6 +3,13 @@
 .env.*.local
 # Note: .env is tracked (contains defaults for Docker)
 
+# Auto-generated files
+actual_openapi.json
+*.backup
+*.bak
+*.old
+*.tmp
+
 # Python
 __pycache__/
 *.py[cod]

@@ -6,6 +6,11 @@ async function proxyRequest(request: NextRequest, path: string[]) {
   const targetPath = `/api/v1/${path.join('/')}${url.search}`;
   const targetUrl = `${API_CONFIG.BACKEND_URL}${targetPath}`;
 
+  // Log for debugging static file requests
+  if (path[0] === 'static') {
+    console.log('[API Proxy] Static file request:', targetUrl);
+  }
+
   try {
     // Get headers from the incoming request
     const headers: Record<string, string> = {};
@@ -38,8 +43,13 @@ async function proxyRequest(request: NextRequest, path: string[]) {
       const response = await fetch(targetUrl, fetchOptions);
       clearTimeout(timeoutId);
 
-      // Get response body
-      const responseBody = await response.text();
+      // Get content type to determine if it's binary (image, file, etc.)
+      const contentType = response.headers.get('content-type') || '';
+      const isBinary = contentType.startsWith('image/') || 
+                       contentType.startsWith('application/octet-stream') ||
+                       contentType.startsWith('application/pdf') ||
+                       contentType.includes('video/') ||
+                       contentType.includes('audio/');
 
       // Create response headers
       const responseHeaders = new Headers();
@@ -50,11 +60,35 @@ async function proxyRequest(request: NextRequest, path: string[]) {
         }
       });
 
-      return new NextResponse(responseBody, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: responseHeaders,
-      });
+      // Handle binary vs text content differently
+      if (isBinary) {
+        // For binary content (images, files), use arrayBuffer
+        const arrayBuffer = await response.arrayBuffer();
+        if (path[0] === 'static') {
+          console.log('[API Proxy] Serving binary file, size:', arrayBuffer.byteLength, 'Content-Type:', contentType);
+        }
+        
+        // Ensure proper headers for binary content
+        if (contentType) {
+          responseHeaders.set('Content-Type', contentType);
+        }
+        responseHeaders.set('Content-Length', arrayBuffer.byteLength.toString());
+        responseHeaders.set('Cache-Control', 'public, max-age=31536000, immutable');
+        
+        return new NextResponse(arrayBuffer, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders,
+        });
+      } else {
+        // For text content (JSON, HTML, etc.), use text
+        const text = await response.text();
+        return new NextResponse(text, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders,
+        });
+      }
     } catch (fetchError) {
       clearTimeout(timeoutId);
 
@@ -71,8 +105,9 @@ async function proxyRequest(request: NextRequest, path: string[]) {
     }
   } catch (error) {
     console.error('[API Proxy] Error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Backend service unavailable';
     return NextResponse.json(
-      { detail: 'Backend service unavailable' },
+      { detail: errorMessage },
       { status: 503 }
     );
   }

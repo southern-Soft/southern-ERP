@@ -1,17 +1,19 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+import os
+import secrets
 
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "RMG ERP System"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
 
-    # PostgreSQL Base Settings
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "root"
-    POSTGRES_PORT: str = "5432"
+    # PostgreSQL Base Settings - Use environment variables, fallback to defaults for development only
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "root")  # Must be set in production via env
+    POSTGRES_PORT: str = os.getenv("POSTGRES_PORT", "5432")
 
     # Multi-Database Host Configuration
     POSTGRES_HOST_CLIENTS: str = "db-clients"
@@ -42,10 +44,14 @@ class Settings(BaseSettings):
     DATABASE_URL_MERCHANDISER: Optional[str] = None
     DATABASE_URL_SETTINGS: Optional[str] = None
 
-    # JWT Settings
-    SECRET_KEY: str = "your-secret-key-change-this-in-production-please-make-it-secure"
+    # JWT Settings - SECRET_KEY must be set via environment variable in production
+    # Generate a secure key: python -c "import secrets; print(secrets.token_urlsafe(32))"
+    SECRET_KEY: str = os.getenv(
+        "SECRET_KEY",
+        secrets.token_urlsafe(32) if os.getenv("ENVIRONMENT") != "development" else "dev-secret-key-change-in-production"
+    )
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))  # 7 days default
 
     # Redis Cache
     REDIS_HOST: str = "redis"
@@ -57,10 +63,17 @@ class Settings(BaseSettings):
     POOL_SIZE: int = 10
     MAX_OVERFLOW: int = 10
 
-    # CORS - Allow all origins for internal ERP system
-    # Set CORS_ORIGINS env variable to restrict (comma-separated list)
-    CORS_ORIGINS: str = "*"
-    BACKEND_CORS_ORIGINS: list = ["*"]
+    # CORS - Configure via environment variable
+    # In production, set CORS_ORIGINS to comma-separated list: "https://app.example.com,https://admin.example.com"
+    # In development, defaults to allow all for local development
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
+    
+    @property
+    def BACKEND_CORS_ORIGINS(self) -> list:
+        """Parse CORS origins from environment variable"""
+        if self.CORS_ORIGINS == "*":
+            return ["*"] if self.ENVIRONMENT == "development" else []
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     class Config:
         case_sensitive = True

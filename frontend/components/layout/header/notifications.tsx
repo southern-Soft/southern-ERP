@@ -6,6 +6,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/services/api";
 import { useAuth } from "@/lib/auth-context";
+import { AUTH_CONFIG } from "@/lib/config";
+import { safeDecrypt } from "@/lib/crypto";
 import { useEffect } from "react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -70,6 +72,7 @@ const Notifications = () => {
     enabled: shouldFetch,
     refetchInterval: shouldFetch ? 30000 : false, // Poll every 30 seconds if authenticated
     retry: 1,
+    retryOnMount: false, // Don't retry on mount if it fails (prevents 401 errors on initial load)
   });
 
   // Fetch unread count
@@ -102,6 +105,7 @@ const Notifications = () => {
     enabled: shouldFetch,
     refetchInterval: shouldFetch ? 30000 : false, // Poll every 30 seconds if authenticated
     retry: 1,
+    retryOnMount: false, // Don't retry on mount if it fails
   });
 
   // Mark as read mutation

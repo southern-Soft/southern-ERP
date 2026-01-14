@@ -19,13 +19,20 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
-# Set up CORS - Allow all origins for internal ERP
+# Set up CORS - Configure based on environment
+# In production, restrict to specific origins from CORS_ORIGINS env variable
+cors_origins = settings.BACKEND_CORS_ORIGINS
+if not cors_origins and settings.ENVIRONMENT == "production":
+    logger.warning("⚠️  CORS_ORIGINS not set in production! This is a security risk.")
+    cors_origins = []  # Deny all in production if not configured
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=cors_origins,
+    allow_credentials=True if cors_origins != ["*"] else False,  # Don't allow credentials with wildcard
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -61,6 +68,12 @@ async def startup_event():
         from migrations.add_uom_new_columns import run_migration
         run_migration()
         
+        from migrations.add_color_size_ids_to_sample_primary_info import add_color_size_ids_columns
+        add_color_size_ids_columns()
+        
+        from migrations.add_color_size_yarn_ids_to_sample_requests import add_color_size_yarn_ids_columns
+        add_color_size_yarn_ids_columns()
+        
         from migrations.seed_workflow_templates import seed_workflow_templates
         seed_workflow_templates()
         
@@ -72,6 +85,9 @@ async def startup_event():
         
         from migrations.create_uom_conversion_system import create_uom_conversion_system
         create_uom_conversion_system()
+        
+        from migrations.add_performance_indexes import add_performance_indexes
+        add_performance_indexes()
         
         logger.info("Migrations completed successfully")
     except ImportError as e:

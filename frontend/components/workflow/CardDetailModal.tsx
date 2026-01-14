@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useState, useEffect } from "react";
+import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -107,6 +108,9 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
   onDownloadAttachment,
   statusHistory = []
 }) => {
+  const { user } = useAuth();
+  const currentUser = user?.username || user?.full_name || "Unknown User";
+  
   const [activeTab, setActiveTab] = useState("details");
   const [newComment, setNewComment] = useState("");
   const [isEditingDetails, setIsEditingDetails] = useState(false);
@@ -461,7 +465,7 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
               cardId={card.id}
               comments={card.comments}
               onAddComment={onAddComment}
-              currentUser="Current User" // TODO: Get from auth context
+              currentUser={currentUser}
             />
           </TabsContent>
 
@@ -471,7 +475,7 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
               attachments={card.attachments}
               onUploadAttachment={onUploadAttachment}
               onDownloadAttachment={onDownloadAttachment}
-              currentUser="Current User" // TODO: Get from auth context
+              currentUser={currentUser}
             />
           </TabsContent>
 
