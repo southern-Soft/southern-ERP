@@ -242,11 +242,35 @@ def init_db():
 def _run_merchandiser_migrations(engine):
     """Run migrations for merchandiser database"""
     from sqlalchemy import text
+    from sqlalchemy import inspect as sql_inspect
     
     try:
         logger.info("Running merchandiser database migrations...")
+        
+        # First, run the comprehensive schema update migration
+        try:
+            from migrations.update_sample_primary_info_schema import update_sample_primary_info_schema
+            logger.info("Running update_sample_primary_info_schema migration...")
+            update_sample_primary_info_schema()
+            logger.info("✅ Schema update migration completed")
+        except ImportError:
+            logger.warning("Could not import update_sample_primary_info_schema migration")
+        except Exception as e:
+            logger.warning(f"Schema update migration warning: {str(e)}")
+        
+        # Then, ensure all required columns exist (backward compatibility)
         with engine.begin() as conn:
-            # List of columns that should exist in sample_primary_info
+            inspector = sql_inspect(engine)
+            
+            # Check if table exists
+            if "sample_primary_info" not in inspector.get_table_names():
+                logger.warning("Table 'sample_primary_info' does not exist yet. It will be created by SQLAlchemy.")
+                return
+            
+            # Get existing columns
+            existing_columns = {col['name'] for col in inspector.get_columns("sample_primary_info")}
+            
+            # List of required columns (new schema)
             required_columns = [
                 ("buyer_name", "VARCHAR"),
                 ("item", "VARCHAR"),
@@ -254,32 +278,36 @@ def _run_merchandiser_migrations(engine):
                 ("yarn_id", "VARCHAR"),
                 ("yarn_details", "TEXT"),
                 ("trims_details", "TEXT"),
-                ("decorative_details", "TEXT"),
                 ("yarn_handover_date", "TIMESTAMP WITH TIME ZONE"),
                 ("trims_handover_date", "TIMESTAMP WITH TIME ZONE"),
                 ("required_date", "TIMESTAMP WITH TIME ZONE"),
                 ("request_pcs", "INTEGER"),
-                ("additional_instruction", "TEXT"),
-                ("techpack_url", "VARCHAR"),
-                ("techpack_filename", "VARCHAR"),
             ]
             
-            # Check which columns are missing
+            # Check which columns are missing and add them
             for column_name, column_type in required_columns:
-                result = conn.execute(text("""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name='sample_primary_info' 
-                    AND column_name=:col_name
-                """), {"col_name": column_name})
-                
-                if not result.fetchone():
+                if column_name not in existing_columns:
                     logger.info(f"Adding '{column_name}' column to sample_primary_info table...")
                     conn.execute(text(f"""
                         ALTER TABLE sample_primary_info 
                         ADD COLUMN {column_name} {column_type}
                     """))
                     logger.info(f"✅ Successfully added '{column_name}' column")
+            
+            # Ensure techpack_files column exists (new schema uses JSON)
+            if "techpack_files" not in existing_columns:
+                logger.info("Adding 'techpack_files' JSON column to sample_primary_info table...")
+                conn.execute(text("""
+                    ALTER TABLE sample_primary_info 
+                    ADD COLUMN techpack_files jsonb
+                """))
+                logger.info("✅ Successfully added 'techpack_files' column")
+            
+            # Ensure additional_instruction is JSON (if it exists as TEXT, migration should handle it)
+            if "additional_instruction" in existing_columns:
+                col_info = next((col for col in inspector.get_columns("sample_primary_info") if col['name'] == 'additional_instruction'), None)
+                if col_info and 'jsonb' not in str(col_info['type']).lower() and 'json' not in str(col_info['type']).lower():
+                    logger.info("additional_instruction exists but is not JSON - migration should handle conversion")
             
             logger.info("Merchandiser database migrations completed")
         
