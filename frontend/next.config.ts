@@ -57,7 +57,12 @@ const nextConfig: NextConfig = {
 
   // URL rewrites for API masking and legacy URL support
   async rewrites() {
-    const apiUrl = API_CONFIG.BACKEND_URL;
+    // Get backend URL from environment or use default
+    // Note: rewrites run at build time, so we need to use env var directly
+    const apiUrl = process.env.BACKEND_URL || 
+                   process.env.API_URL || 
+                   API_CONFIG.BACKEND_URL || 
+                   'http://backend:8000';
 
     return {
       // Process before checking filesystem
@@ -72,6 +77,8 @@ const nextConfig: NextConfig = {
       afterFiles: [],
 
       // Fallback rewrites (when no file matches)
+      // Note: API routes at app/api/v1/[...path]/route.ts handle this instead
+      // Rewrites are kept for compatibility but API route handler is primary
       fallback: [
         // API Masking - proxies /api/v1/* to backend (except static files handled above)
         // This hides the actual backend URL from client-side code

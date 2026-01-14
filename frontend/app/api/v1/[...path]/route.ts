@@ -4,11 +4,19 @@ import { API_CONFIG } from '@/lib/config';
 async function proxyRequest(request: NextRequest, path: string[]) {
   const url = new URL(request.url);
   const targetPath = `/api/v1/${path.join('/')}${url.search}`;
-  const targetUrl = `${API_CONFIG.BACKEND_URL}${targetPath}`;
+  
+  // Get backend URL - prioritize environment variable, then config, then Docker default
+  const backendUrl = process.env.BACKEND_URL || 
+                     process.env.API_URL || 
+                     API_CONFIG.BACKEND_URL || 
+                     'http://backend:8000';
+  
+  const targetUrl = `${backendUrl}${targetPath}`;
 
-  // Log for debugging static file requests
-  if (path[0] === 'static') {
-    console.log('[API Proxy] Static file request:', targetUrl);
+  // Log for debugging (only in development or for specific paths)
+  if (process.env.NODE_ENV !== 'production' || path[0] === 'static' || path[0] === 'buyers' || path[0] === 'suppliers') {
+    console.log('[API Proxy] Request:', request.method, targetUrl);
+    console.log('[API Proxy] BACKEND_URL env:', process.env.BACKEND_URL || 'not set');
   }
 
   try {

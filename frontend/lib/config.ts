@@ -36,12 +36,12 @@ export const API_CONFIG = {
     if (typeof window === "undefined") {
       const url = process.env.BACKEND_URL || process.env.API_URL;
       if (!url) {
-        console.warn("BACKEND_URL or API_URL not set - API rewrites may not work correctly");
+        console.warn("BACKEND_URL or API_URL not set - using Docker default fallback");
         return "http://backend:8000"; // Docker default fallback
       }
       return url;
     }
-    // Browser: not used (API masking handles routing)
+    // Browser: not used (API masking handles routing via Next.js rewrites/API routes)
     return "";
   })(),
   /** Request timeout in milliseconds */
